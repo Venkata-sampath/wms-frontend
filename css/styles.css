@@ -1,0 +1,222 @@
+/* =========================================================================
+   Global Layout Rules
+   ========================================================================= */
+:root {
+  --sidebar-expanded-width: 260px;
+  --sidebar-collapsed-width: 70px;
+  --top-navbar-height: 56px;
+  --transition-speed: 0.25s;
+}
+
+body,
+html {
+  height: 100%;
+  overflow-x: hidden;
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
+}
+
+/* Base Wrapper for App Shell Layout */
+.app-wrapper {
+  display: flex;
+  min-height: 100vh;
+  width: 100vw;
+}
+
+/* =========================================================================
+   Responsive Collapsible Sidebar Component Design
+   ========================================================================= */
+.wms-sidebar {
+  width: var(--sidebar-expanded-width);
+  min-width: var(--sidebar-expanded-width);
+  background-color: #212529; /* Dark sleek slate theme */
+  color: #fff;
+  transition:
+    width var(--transition-speed) ease,
+    min-width var(--transition-speed) ease;
+  display: flex;
+  flex-direction: column;
+  z-index: 1030;
+}
+
+/* Sidebar Collapsed Modifiers */
+.wms-sidebar.collapsed {
+  width: var(--sidebar-collapsed-width);
+  min-width: var(--sidebar-collapsed-width);
+}
+
+/* Navigation Links Logic inside Sidebar */
+.wms-sidebar .nav-link {
+  color: rgba(255, 255, 255, 0.75);
+  padding: 0.8rem 1.2rem;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  border-left: 4px solid transparent;
+  transition:
+    background-color var(--transition-speed),
+    color var(--transition-speed);
+}
+
+.wms-sidebar .nav-link:hover {
+  color: #fff;
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.wms-sidebar .nav-link.active {
+  color: #fff;
+  background-color: rgba(13, 110, 253, 0.15); /* Soft primary tint indicator */
+  border-left-color: #0d6efd; /* Hard Blue accent line strip */
+}
+
+/* Link Nav Icons Sizing Constraints */
+.wms-sidebar .nav-link i {
+  font-size: 1.25rem;
+  margin-right: 1rem;
+  width: 24px;
+  text-align: center;
+  transition: margin var(--transition-speed) ease;
+}
+
+/* Strip text labels smoothly when collapsed is triggered */
+.wms-sidebar.collapsed .nav-link span {
+  display: none;
+}
+
+.wms-sidebar.collapsed .nav-link i {
+  margin-right: 0;
+}
+
+/* Sidebar Brand Header Section Details */
+.sidebar-brand {
+  height: var(--top-navbar-height);
+  display: flex;
+  align-items: center;
+  padding: 0 1.2rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.wms-sidebar.collapsed .sidebar-brand span {
+  display: none;
+}
+
+/* =========================================================================
+   Main Workspace Right Hand Panel Layout Container Design
+   ========================================================================= */
+.main-workspace {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0; /* Prevents flex children from stretching tables outwards */
+}
+
+.top-app-bar {
+  height: var(--top-navbar-height);
+  background-color: #ffffff;
+  border-bottom: 1px solid #dee2e6;
+  display: flex;
+  align-items: center;
+  padding: 0 1.5rem;
+}
+
+.header-context-label {
+  font-size: 1.25rem; /* default desktop size, same as old fs-5 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-info-block {
+  min-width: 0;
+}
+
+.user-name-text,
+.user-role-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+
+.workspace-viewport {
+  flex-grow: 1;
+  padding: 1.5rem;
+  overflow-y: auto;
+  height: calc(100vh - var(--top-navbar-height));
+}
+
+/* =========================================================================
+   Mobile View Breaks Overlay Drawer Fixes
+   ========================================================================= */
+@media (max-width: 768px) {
+  .top-app-bar {
+    padding: 0 0.75rem;
+  }
+
+  .header-context-label {
+    font-size: 1rem;
+    max-width: 45vw;
+  }
+
+  .user-name-text {
+    font-size: 0.85rem;
+    max-width: 90px;
+  }
+
+  .user-role-text {
+    font-size: 0.7rem !important;
+    max-width: 90px;
+  }
+
+  .wms-sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: calc(
+      -1 * var(--sidebar-expanded-width)
+    ); /* Push completely off-screen by default */
+    width: var(--sidebar-expanded-width) !important;
+  }
+
+  /* Slide out overlay drawer when activated on mobile layout */
+  .wms-sidebar.mobile-show {
+    left: 0;
+  }
+
+  /* Reset workspace margin widths to take full screen canvas natively */
+  .wms-sidebar.collapsed {
+    width: var(--sidebar-expanded-width);
+    left: calc(-1 * var(--sidebar-expanded-width));
+  }
+}
+
+@media (max-width: 480px) {
+  .header-context-label {
+    font-size: 0.85rem;
+    max-width: 38vw;
+  }
+
+  .user-name-text {
+    max-width: 65px;
+  }
+
+  .user-role-text {
+    max-width: 65px;
+  }
+}
+
+/* Utility layout helper for login cards centering boundary */
+.login-screen-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
