@@ -520,7 +520,7 @@ async function renderVerification(shipmentId) {
   workspace.addEventListener("focusout", (e) => {
     if (e.target.classList.contains("required-field")) {
       if (e.target.value.trim() === "") {
-        e.target.classList.add("is-invalid");
+        el.classList.add("is-invalid");
       } else {
         e.target.classList.remove("is-invalid");
       }
@@ -725,7 +725,7 @@ function getLineItemRowHtml(item, idx) {
   }
 
   return `
-    <td class="ps-2"><input type="number" class="form-control form-control-sm text-center" style="min-width: 55px;" id="item_sl_${idx}" value="${item.sl_no ?? idx + 1}"></td>
+    <td class="ps-2"><input type="number" class="form-control form-control-sm text-center" style="min-width: 55px;" id="item_sl_${idx}" value="${idx + 1}" disabled></td>
     <td><input type="text" class="form-control form-control-sm required-field font-monospace" id="item_code_${idx}" value="${escapeAttr(finalItemCode)}" required></td>
     <td><textarea rows="2" class="form-control form-control-sm required-field small" id="item_desc_${idx}" required>${escapeAttr(item.item_description ?? "")}</textarea></td>
     <td><input type="text" class="form-control form-control-sm text-center" id="item_hsn_${idx}" value="${escapeAttr(item.hsn_sac ?? "")}"></td>
@@ -795,7 +795,6 @@ function addLineItemRow() {
 
   tr.innerHTML = getLineItemRowHtml(
     {
-      sl_no: idx + 1,
       item_code: "",
       item_description: "",
       hsn_sac: "",
@@ -907,10 +906,6 @@ async function commitShipment(shipmentId, workspace) {
     document.querySelectorAll(".item-row-data").forEach((row) => {
       const idx = row.dataset.idx;
       lineItems.push({
-        sl_no: parseInt(
-          document.getElementById(`item_sl_${idx}`).value || 0,
-          10,
-        ),
         item_code: document.getElementById(`item_code_${idx}`).value,
         item_description: document.getElementById(`item_desc_${idx}`).value,
         hsn_sac: document.getElementById(`item_hsn_${idx}`).value,
