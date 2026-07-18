@@ -212,10 +212,11 @@ function renderTaskDetail(task) {
             <tr>
               <th class="ps-1" style="min-width:100px;">SKU / Code</th>
               <th style="min-width:130px;">Description Title</th>
-              <th style="width:90px;">Category</th>
+              <th style="width:90px;" class="text-center">Category</th>
               <th style="width:100px;">Mfg Date</th>
               <th style="width:100px;">Expiry</th>
-              <th style="width:70px;">Target</th>
+              <th style="width:70px;">Quantity</th>
+              <th style="width:70px;">UOM</th>
               <th style="min-width:260px;">Bin Layout Allocations</th>
             </tr>
           </thead>
@@ -235,6 +236,25 @@ function renderTaskDetail(task) {
 }
 
 function renderItemAllocationRow(taskId, item) {
+  // 1. Category Badge Styling (Matching Inventory View exactly)
+  const categoryVal = item.category || "-";
+  const categoryLower = categoryVal.toLowerCase().trim();
+  let catBg = "#e2e8f0"; // Neutral Light Gray
+  let catColor = "#475569"; // Neutral Dark Gray Text
+
+  if (categoryLower === "ambient") {
+    catBg = "#f5ebe0"; // Light Beige / Sand
+    catColor = "#4e342e"; // Dark Brown
+  } else if (categoryLower === "chiller") {
+    catBg = "#cfe2ff"; // Light Blue
+    catColor = "#084298"; // Dark Blue
+  } else if (categoryLower === "frozen") {
+    catBg = "#e0f7fa"; // Light Cyan / Ice Blue
+    catColor = "#006064"; // Dark Teal
+  }
+
+  const categoryDisplay = `<span class="badge rounded-pill px-3 py-1 text-capitalize fw-bold" style="background-color: ${catBg}; color: ${catColor}; border: none; display: inline-block;">${escapeHtml(categoryVal)}</span>`;
+
   const allocations = allocationsState[taskId][item.item_code];
   const allocatedRowsHtml = allocations
     .map((alloc, idx) => renderAllocationLine(taskId, item, alloc, idx))
@@ -244,10 +264,11 @@ function renderItemAllocationRow(taskId, item) {
     <tr data-item-code="${escapeHtml(item.item_code)}">
       <td class="ps-1"><code class="small fw-bold font-monospace text-primary">${escapeHtml(item.item_code)}</code></td>
       <td><div class="text-secondary text-truncate" style="max-width:150px;" title="${escapeHtml(item.item_description)}">${escapeHtml(item.item_description)}</div></td>
-      <td><span class="badge bg-info-subtle text-info border border-info-subtle text-capitalize">${escapeHtml(item.category || "—")}</span></td>
+      <td class="text-center">${categoryDisplay}</td>
       <td class="small text-muted">${item.manufacturing_date ? escapeHtml(item.manufacturing_date) : "—"}</td>
       <td class="small text-muted">${item.expiry_date ? escapeHtml(item.expiry_date) : "—"}</td>
       <td class="fw-bold text-dark">${item.quantity_to_place}</td>
+      <td><small class="text-uppercase text-muted fw-bold">${escapeHtml(item.uom || "")}</small></td>
       <td class="py-2">
         <div class="d-flex flex-column gap-1.5" id="alloc-lines-${taskId}-${cssSafe(item.item_code)}">
           ${allocatedRowsHtml}
@@ -498,10 +519,6 @@ async function completeTask(taskId) {
 function formatTimestamp(raw) {
   if (!raw) return "—";
 
-  // D1's CURRENT_TIMESTAMP produces "YYYY-MM-DD HH:MM:SS" in UTC but with no
-  // timezone marker. `new Date(...)` on that string gets parsed as *local*
-  // browser time by most engines, which silently gives the wrong instant.
-  // Normalize to an unambiguous ISO UTC string first.
   let isoString = String(raw).trim();
   if (isoString.includes(" ") && !isoString.includes("T")) {
     isoString = isoString.replace(" ", "T");
