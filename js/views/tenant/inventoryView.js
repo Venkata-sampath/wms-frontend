@@ -62,17 +62,16 @@ export async function render(container, user) {
                 <th scope="col">Location</th>
                 <th scope="col" class="text-end">Qty</th>
                 <th scope="col" class="text-center">UOM</th>
-                <th scope="col">Category</th>
+                <th scope="col" class="text-center">Category</th>
                 <th scope="col">Mfg Date</th>
                 <th scope="col">Expiry Date</th>
-                <th scope="col">Shelf Life</th>
-                <th scope="col">Aging</th>
-                <th scope="col" class="pe-3">Traceability ID</th>
+                <th scope="col" class="text-center">Shelf Life (Days)</th>
+                <th scope="col" class="text-center">Aging (Days)</th>
               </tr>
             </thead>
             <tbody id="inventory-table-body">
               <tr>
-                <td colspan="11" class="text-center py-5">
+                <td colspan="10" class="text-center py-5">
                   <div class="spinner-border spinner-border-sm text-primary me-2"></div>
                   Querying real-time trace ledgers...
                 </td>
@@ -96,7 +95,7 @@ export async function render(container, user) {
     } catch (err) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="11" class="text-center text-danger py-4">
+          <td colspan="10" class="text-center text-danger py-4">
             <i class="bi bi-exclamation-triangle-fill me-2"></i> Failed to retrieve inventory: ${err.message}
           </td>
         </tr>
@@ -105,7 +104,6 @@ export async function render(container, user) {
   }
 
   function computeSummaryMetrics(data) {
-    // Metrics now look at discrete physical batch rows
     const totalBatches = data.length;
     const totalUnits = data.reduce(
       (acc, item) => acc + parseFloat(item.quantity || 0),
@@ -150,7 +148,7 @@ export async function render(container, user) {
     if (filtered.length === 0) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="11" class="text-center text-muted py-4">
+          <td colspan="10" class="text-center text-muted py-4">
             No matching batch records found matching the specified criteria.
           </td>
         </tr>
@@ -173,11 +171,27 @@ export async function render(container, user) {
           const timeDiff = expDate.getTime() - today.getTime();
           const daysRemaining = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
 
+          let bg = "";
+          let color = "";
+
           if (daysRemaining < 0) {
-            shelfLifeDisplay = `<span class="text-danger fw-bold">Expired (${Math.abs(daysRemaining)} Days ago)</span>`;
+            bg = "#8b0000"; // Dark Red
+            color = "#ffffff"; // White
+          } else if (daysRemaining <= 30) {
+            bg = "#f8d7da"; // Light Red
+            color = "#842029"; // Dark Red
+          } else if (daysRemaining <= 90) {
+            bg = "#ffe8cc"; // Light Orange
+            color = "#d9480f"; // Dark Orange
+          } else if (daysRemaining <= 180) {
+            bg = "#fef3c7"; // Light Yellow
+            color = "#b45309"; // Dark Gold
           } else {
-            shelfLifeDisplay = `<span class="text-dark fw-medium">${daysRemaining} Days</span>`;
+            bg = "#d1e7dd"; // Light Green
+            color = "#0f5132"; // Dark Green
           }
+
+          shelfLifeDisplay = `<span class="badge rounded-pill px-3 py-1 fw-bold" style="background-color: ${bg}; color: ${color}; border: none; display: inline-block;">${daysRemaining}</span>`;
         }
 
         // 2. Calculate Dynamic Aging (Current Date -> Created At)
@@ -187,8 +201,46 @@ export async function render(container, user) {
           createdDate.setHours(0, 0, 0, 0);
           const timeDiff = today.getTime() - createdDate.getTime();
           const daysOld = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
-          agingDisplay = `<span class="text-dark">${daysOld <= 0 ? "Today" : daysOld + " Days"}</span>`;
+          const numericAging = daysOld <= 0 ? 0 : daysOld;
+
+          let bg = "";
+          let color = "";
+
+          if (numericAging <= 30) {
+            bg = "#e7f1ff"; // Very Light Blue
+            color = "#0a58ca"; // Dark Blue
+          } else if (numericAging <= 90) {
+            bg = "#cff4fc"; // Light Cyan
+            color = "#087990"; // Dark Cyan
+          } else if (numericAging <= 180) {
+            bg = "#e0dbff"; // Light Indigo
+            color = "#4f46e5"; // Indigo
+          } else {
+            bg = "#f3e5f5"; // Light Purple
+            color = "#4a148c"; // Dark Purple
+          }
+
+          agingDisplay = `<span class="badge rounded-pill px-3 py-1 fw-bold" style="background-color: ${bg}; color: ${color}; border: none; display: inline-block;">${numericAging}</span>`;
         }
+
+        // 3. Category Custom Styles Logic
+        const categoryVal = item.category || "-";
+        const categoryLower = categoryVal.toLowerCase().trim();
+        let catBg = "#e2e8f0"; // Neutral Light Gray
+        let catColor = "#475569"; // Neutral Dark Gray Text
+
+        if (categoryLower === "ambient") {
+          catBg = "#f5ebe0"; // Light Beige / Sand
+          catColor = "#4e342e"; // Dark Brown
+        } else if (categoryLower === "chiller") {
+          catBg = "#cfe2ff"; // Light Blue
+          catColor = "#084298"; // Dark Blue
+        } else if (categoryLower === "frozen") {
+          catBg = "#e0f7fa"; // Light Cyan / Ice Blue
+          catColor = "#006064"; // Dark Teal
+        }
+
+        const categoryDisplay = `<span class="badge rounded-pill px-3 py-1 text-capitalize fw-bold" style="background-color: ${catBg}; color: ${catColor}; border: none; display: inline-block;">${categoryVal}</span>`;
 
         return `
         <tr>
@@ -198,20 +250,12 @@ export async function render(container, user) {
             <span class="badge bg-secondary font-monospace px-2 py-1">${item.location_id}</span>
           </td>
           <td class="text-end fw-bold">${qty.toLocaleString()}</td>
-          
-          <!-- Removed default fallback string value loop constraints -->
           <td class="text-center"><small class="text-uppercase text-muted fw-bold">${item.uom || ""}</small></td>
-          
-          <td><span class="badge bg-light text-dark text-capitalize border">${item.category || "-"}</span></td>
+          <td class="text-center">${categoryDisplay}</td>
           <td><small class="text-dark">${item.manufacturing_date || "-"}</small></td>
           <td><small class="text-dark">${item.expiry_date || "-"}</small></td>
-          <td><small>${shelfLifeDisplay}</small></td>
-          <td><small>${agingDisplay}</small></td>
-          <td>
-            <span class="text-muted font-monospace small" style="font-size: 0.75rem;" title="${item.shipment_line_item_id}">
-              ...${(item.shipment_line_item_id || "").slice(-12)}
-            </span>
-          </td>
+          <td class="text-center">${shelfLifeDisplay}</td>
+          <td class="text-center">${agingDisplay}</td>
         </tr>
       `;
       })
