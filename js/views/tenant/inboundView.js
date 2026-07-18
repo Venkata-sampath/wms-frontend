@@ -520,7 +520,7 @@ async function renderVerification(shipmentId) {
   workspace.addEventListener("focusout", (e) => {
     if (e.target.classList.contains("required-field")) {
       if (e.target.value.trim() === "") {
-        el.classList.add("is-invalid");
+        e.target.classList.add("is-invalid");
       } else {
         e.target.classList.remove("is-invalid");
       }
@@ -917,7 +917,6 @@ async function commitShipment(shipmentId, workspace) {
         tax_rate_percent: document.getElementById(
           `item_tax_rate_percent_${idx}`,
         ).value,
-        choose: document.getElementById(`item_cgst_${idx}`).value,
         cgst: document.getElementById(`item_cgst_${idx}`).value,
         sgst: document.getElementById(`item_sgst_${idx}`).value,
         igst: document.getElementById(`item_igst_${idx}`).value,
