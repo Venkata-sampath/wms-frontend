@@ -143,17 +143,11 @@ async function refreshTasks() {
 
   try {
     let result;
+    // Simply call the correct API method based on the tab
     if (activeTab === "pending") {
       result = await Api.putaway.getPending();
     } else {
-      // Dynamic routing mapped safely over the new runtime endpoint mapping structure
-      if (typeof Api.putaway.getCompleted === "function") {
-        result = await Api.putaway.getCompleted();
-      } else {
-        const res = await fetch("/api/putaway/completed");
-        if (!res.ok) throw new Error("Could not parse data stream.");
-        result = await res.json();
-      }
+      result = await Api.putaway.getCompleted();
     }
     tasksCache = result.tasks || [];
 

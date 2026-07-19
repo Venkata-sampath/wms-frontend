@@ -168,6 +168,9 @@ export const Api = {
     async getPending() {
       return sendRequest("GET", "/api/putaway/pending");
     },
+    async getCompleted() {
+      return sendRequest("GET", "/api/putaway/completed");
+    },
     async completeTask(putawayTaskId, allocationsArray) {
       return sendRequest("POST", "/api/putaway/complete", {
         putaway_task_id: putawayTaskId,
