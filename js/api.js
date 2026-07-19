@@ -88,6 +88,17 @@ export const Api = {
     },
   },
 
+  // --- CLIENT MASTER SERVICE INTERFACE ---
+  clients: {
+    async list() {
+      const res = await sendRequest("GET", "/api/clients");
+      return res.clients || [];
+    },
+    async create(payload) {
+      return sendRequest("POST", "/api/clients", payload);
+    },
+  },
+
   // --- SUPER ADMIN SERVICES (Isolated Ecosystem) ---
   superadmin: {
     async getWarehouses() {

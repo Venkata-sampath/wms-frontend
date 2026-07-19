@@ -52,7 +52,10 @@ function getValidViewKeysForRole(role) {
     "tenant-transactions",
     "tenant-locations",
   ];
-  if (role === "admin") keys.push("tenant-users");
+  if (role === "admin") {
+    keys.push("tenant-users");
+    keys.push("tenant-clients"); // Register view access key blueprint
+  }
   return keys;
 }
 
@@ -181,6 +184,9 @@ async function loadView(viewKey, containerId) {
     case "tenant-users":
       modulePath = "./views/tenant/usersView.js";
       break;
+    case "tenant-clients":
+      modulePath = "./views/tenant/clientsView.js";
+      break;
     default:
       throw new Error(
         `The requested view blueprint "${viewKey}" cannot be found.`,
@@ -217,6 +223,7 @@ function buildMasterShellHTML(user) {
     if (user.role === "admin") {
       sidebarNavHTML += `
         <a class="nav-link" href="#" data-view="tenant-users"><i class="bi bi-people"></i> <span>Team Directory</span></a>
+        <a class="nav-link" href="#" data-view="tenant-clients"><i class="bi bi-briefcase"></i> <span>Client Master</span></a>
       `;
     }
   }
