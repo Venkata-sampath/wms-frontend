@@ -65,13 +65,17 @@ export async function render(container, user) {
                 <th scope="col" class="text-center">Category</th>
                 <th scope="col">Mfg Date</th>
                 <th scope="col">Expiry Date</th>
+                <!-- MODIFIED: Appended New Columns -->
+                <th scope="col">Verified By</th>
+                <th scope="col">Putaway By</th>
                 <th scope="col" class="text-center">Shelf Life (Days)</th>
                 <th scope="col" class="text-center">Aging (Days)</th>
               </tr>
             </thead>
             <tbody id="inventory-table-body">
               <tr>
-                <td colspan="10" class="text-center py-5">
+                <!-- MODIFIED: Bumped colspan to 12 -->
+                <td colspan="12" class="text-center py-5">
                   <div class="spinner-border spinner-border-sm text-primary me-2"></div>
                   Querying real-time trace ledgers...
                 </td>
@@ -93,9 +97,10 @@ export async function render(container, user) {
       computeSummaryMetrics(fullInventoryData);
       renderFilteredTable();
     } catch (err) {
+      // MODIFIED: Bumped colspan to 12
       tbody.innerHTML = `
         <tr>
-          <td colspan="10" class="text-center text-danger py-4">
+          <td colspan="12" class="text-center text-danger py-4">
             <i class="bi bi-exclamation-triangle-fill me-2"></i> Failed to retrieve inventory: ${err.message}
           </td>
         </tr>
@@ -146,9 +151,10 @@ export async function render(container, user) {
     });
 
     if (filtered.length === 0) {
+      // MODIFIED: Bumped colspan to 12
       tbody.innerHTML = `
         <tr>
-          <td colspan="10" class="text-center text-muted py-4">
+          <td colspan="12" class="text-center text-muted py-4">
             No matching batch records found matching the specified criteria.
           </td>
         </tr>
@@ -254,6 +260,9 @@ export async function render(container, user) {
           <td class="text-center">${categoryDisplay}</td>
           <td><small class="text-dark">${item.manufacturing_date || "-"}</small></td>
           <td><small class="text-dark">${item.expiry_date || "-"}</small></td>
+          <!-- MODIFIED: Injected Verified By and Putaway By Data elements -->
+          <td><small class="fw-semibold text-secondary">${item.verified_by || '<span class="text-muted">-</span>'}</small></td>
+          <td><small class="fw-semibold text-secondary">${item.putaway_by || '<span class="text-muted">-</span>'}</small></td>
           <td class="text-center">${shelfLifeDisplay}</td>
           <td class="text-center">${agingDisplay}</td>
         </tr>
