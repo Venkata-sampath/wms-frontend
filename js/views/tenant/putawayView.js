@@ -6,6 +6,7 @@ import { Api } from "../../api.js";
 let pollInterval = null;
 let tasksCache = [];
 let expandedTaskId = null;
+let activeTab = "pending"; // Default tab selection context tracker
 // allocationsState[taskId][item_code] = [{ location_id, quantity }, ...]
 let allocationsState = {};
 let availableLocations = []; // [{ id, calculated_status }]
@@ -21,8 +22,8 @@ export async function render(container, user) {
   allocationsState = {};
   availableLocations = [];
   openComboboxKey = null;
+  activeTab = "pending";
 
-  // Render baseline dashboard with tightened mobile structural padding configurations
   container.innerHTML = `
     <div class="container-fluid p-2 p-sm-4 animate-fade-in" id="putaway-root">
       
@@ -40,6 +41,16 @@ export async function render(container, user) {
         </div>
       </div>
 
+      <!-- Tab Switcher Navigation Bar -->
+      <ul class="nav nav-tabs mb-3" id="putaway-tabs" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active fw-semibold text-sm" id="pending-tab" data-tab="pending" type="button" role="tab">Pending Tasks</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link fw-semibold text-sm" id="completed-tab" data-tab="completed" type="button" role="tab">Completed Tasks</button>
+        </li>
+      </ul>
+
       <div id="putaway-list">
         <div class="text-center text-muted py-5">
           <div class="spinner-border spinner-border-sm text-primary mb-2" role="status"></div>
@@ -56,7 +67,29 @@ export async function render(container, user) {
       refreshTasks();
     });
 
-  // Close any open search-dropdown when clicking elsewhere on the page
+  // Wiring up Tab Toggle Event Actions
+  container.querySelectorAll("#putaway-tabs .nav-link").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      container
+        .querySelectorAll("#putaway-tabs .nav-link")
+        .forEach((b) => b.classList.remove("active"));
+      e.target.classList.add("active");
+      activeTab = e.target.dataset.tab;
+      expandedTaskId = null; // Automatically reset expand view tracking frame
+
+      const listEl = document.getElementById("putaway-list");
+      if (listEl) {
+        listEl.innerHTML = `
+          <div class="text-center text-muted py-5">
+            <div class="spinner-border spinner-border-sm text-primary mb-2" role="status"></div>
+            <div class="small">Loading ${activeTab} putaway tasks...</div>
+          </div>
+        `;
+      }
+      refreshTasks();
+    });
+  });
+
   document.addEventListener("click", handleGlobalClickForCombobox);
 
   fetchAvailableLocations();
@@ -109,10 +142,21 @@ async function refreshTasks() {
   if (!listEl) return;
 
   try {
-    const result = await Api.putaway.getPending();
+    let result;
+    if (activeTab === "pending") {
+      result = await Api.putaway.getPending();
+    } else {
+      // Dynamic routing mapped safely over the new runtime endpoint mapping structure
+      if (typeof Api.putaway.getCompleted === "function") {
+        result = await Api.putaway.getCompleted();
+      } else {
+        const res = await fetch("/api/putaway/completed");
+        if (!res.ok) throw new Error("Could not parse data stream.");
+        result = await res.json();
+      }
+    }
     tasksCache = result.tasks || [];
 
-    // Don't overwrite the DOM tree frame if an operator is actively filling allocation data inputs
     if (expandedTaskId) {
       return;
     }
@@ -132,8 +176,8 @@ function renderTaskList(listEl) {
     listEl.innerHTML = `
       <div class="card p-4 p-sm-5 shadow-sm text-center text-muted border-0 rounded-3">
         <i class="bi bi-inboxes display-6 d-block mb-2 text-secondary"></i>
-        <p class="fw-bold mb-1">No putaway tasks pending</p>
-        <small class="text-muted">Commit a verified shipment layout ledger to generate a processing entry sequence automatically.</small>
+        <p class="fw-bold mb-1">No putaway tasks ${activeTab}</p>
+        <small class="text-muted">${activeTab === "pending" ? "Commit a verified shipment layout ledger to generate a processing entry sequence automatically." : "Completed tasks will be archived here for record keeping."}</small>
       </div>
     `;
     return;
@@ -141,7 +185,6 @@ function renderTaskList(listEl) {
 
   listEl.innerHTML = tasksCache.map((task) => renderTaskCard(task)).join("");
 
-  // Wire up expand/collapse actions
   listEl.querySelectorAll(".task-header-toggle").forEach((el) => {
     el.addEventListener("click", () => {
       const taskId = el.dataset.taskId;
@@ -157,13 +200,30 @@ function renderTaskList(listEl) {
 
 function renderTaskCard(task) {
   const isExpanded = task.id === expandedTaskId;
-  const shortShipmentId = (task.shipment_id || "").substring(0, 8) + "...";
   const createdAt = formatTimestamp(task.created_at);
   const totalItems = task.items.length;
-  const totalQty = task.items.reduce(
-    (sum, i) => sum + (i.quantity_to_place || 0),
-    0,
-  );
+
+  let subHeaderHtml = "";
+  if (activeTab === "pending") {
+    subHeaderHtml = `
+      <div class="text-muted mt-0.5 text-truncate" style="font-size:0.75rem;">
+        Shipment ID: <span class="fw-semibold text-secondary">${escapeHtml(task.shipment_id || "")}</span> · 
+        Created: ${createdAt} · 
+        Verified By: <span class="fw-semibold text-dark">${escapeHtml(task.verified_by || "—")}</span>
+      </div>
+    `;
+  } else {
+    const completedAt = formatTimestamp(task.completed_date_time);
+    subHeaderHtml = `
+      <div class="text-muted mt-0.5 text-truncate" style="font-size:0.75rem;">
+        Shipment ID: <span class="fw-semibold text-secondary">${escapeHtml(task.shipment_id || "")}</span> · 
+        Created: ${createdAt} · 
+        Verified By: <span class="fw-semibold text-dark">${escapeHtml(task.verified_by || "—")}</span> · 
+        Completed By: <span class="fw-semibold text-dark">${escapeHtml(task.completed_by || "—")}</span> · 
+        Completed Date & Time: <span class="fw-semibold text-dark">${completedAt}</span>
+      </div>
+    `;
+  }
 
   return `
     <div class="card shadow-sm border-0 rounded-3 mb-2 mb-md-3 animate-fade-in">
@@ -171,13 +231,10 @@ function renderTaskCard(task) {
         <div class="task-header-toggle d-flex justify-content-between align-items-center p-2 p-sm-3" data-task-id="${task.id}" style="cursor:pointer;">
           <div class="pe-2 text-truncate">
             <div class="fw-bold text-dark text-truncate small-mobile-title" style="font-size:0.95rem;">
-              ${task.invoice_number ? `Invoice: ${escapeHtml(task.invoice_number)}` : `Shipment: ${shortShipmentId}`}
+              Invoice Number: ${task.invoice_number ? escapeHtml(task.invoice_number) : "—"}
               <span class="badge bg-secondary text-white ms-1 rounded px-2" style="font-size:0.7rem;">${totalItems} SKU${totalItems === 1 ? "" : "s"}</span>
             </div>
-            <div class="text-muted mt-0.5 text-truncate" style="font-size:0.75rem;">
-              ${task.vehicle_number ? `Vehicle: ${escapeHtml(task.vehicle_number)} · ` : ""}
-              Units: <span class="fw-semibold text-primary">${totalQty}</span> · Logged: ${createdAt}
-            </div>
+            ${subHeaderHtml}
           </div>
           <div class="flex-shrink-0 ps-1">
             <i class="bi ${isExpanded ? "bi-chevron-up" : "bi-chevron-down"} fs-6 text-muted"></i>
@@ -191,7 +248,7 @@ function renderTaskCard(task) {
 }
 
 function renderTaskDetail(task) {
-  if (!allocationsState[task.id]) {
+  if (activeTab === "pending" && !allocationsState[task.id]) {
     allocationsState[task.id] = {};
     task.items.forEach((item) => {
       allocationsState[task.id][item.item_code] = [
@@ -226,39 +283,63 @@ function renderTaskDetail(task) {
         </table>
       </div>
       
+      ${
+        activeTab === "pending"
+          ? `
       <div id="putaway-error-${task.id}" class="alert alert-danger py-2 px-3 small border-0 shadow-sm rounded-3 mb-2 d-none" style="font-size:0.75rem;"></div>
       
       <button type="button" class="btn btn-success btn-sm w-100 py-2 fw-semibold shadow-sm complete-task-btn" data-task-id="${task.id}">
         <i class="bi bi-check2-circle me-1"></i> Complete Putaway Task
       </button>
+      `
+          : ""
+      }
     </div>
   `;
 }
 
 function renderItemAllocationRow(taskId, item) {
-  // 1. Category Badge Styling (Matching Inventory View exactly)
   const categoryVal = item.category || "-";
   const categoryLower = categoryVal.toLowerCase().trim();
-  let catBg = "#e2e8f0"; // Neutral Light Gray
-  let catColor = "#475569"; // Neutral Dark Gray Text
+  let catBg = "#e2e8f0";
+  let catColor = "#475569";
 
   if (categoryLower === "ambient") {
-    catBg = "#f5ebe0"; // Light Beige / Sand
-    catColor = "#4e342e"; // Dark Brown
+    catBg = "#f5ebe0";
+    catColor = "#4e342e";
   } else if (categoryLower === "chiller") {
-    catBg = "#cfe2ff"; // Light Blue
-    catColor = "#084298"; // Dark Blue
+    catBg = "#cfe2ff";
+    catColor = "#084298";
   } else if (categoryLower === "frozen") {
-    catBg = "#e0f7fa"; // Light Cyan / Ice Blue
-    catColor = "#006064"; // Dark Teal
+    catBg = "#e0f7fa";
+    catColor = "#006064";
   }
 
   const categoryDisplay = `<span class="badge rounded-pill px-3 py-1 text-capitalize fw-bold" style="background-color: ${catBg}; color: ${catColor}; border: none; display: inline-block;">${escapeHtml(categoryVal)}</span>`;
 
-  const allocations = allocationsState[taskId][item.item_code];
-  const allocatedRowsHtml = allocations
-    .map((alloc, idx) => renderAllocationLine(taskId, item, alloc, idx))
-    .join("");
+  let allocatedRowsHtml = "";
+  if (activeTab === "pending") {
+    const allocations = allocationsState[taskId][item.item_code];
+    allocatedRowsHtml = allocations
+      .map((alloc, idx) => renderAllocationLine(taskId, item, alloc, idx))
+      .join("");
+  } else {
+    // Read-only execution path handling plain-text row layout generation from new mapping history
+    const allocations = item.allocations || [];
+    if (allocations.length === 0) {
+      allocatedRowsHtml = `<span class="text-muted small">—</span>`;
+    } else {
+      allocatedRowsHtml = allocations
+        .map(
+          (alloc) => `
+        <div class="font-monospace text-dark py-0.5" style="font-size:0.75rem;">
+          <span class="fw-bold">${escapeHtml(alloc.location_id)}</span> &nbsp;&nbsp;&nbsp;&nbsp; Qty ${alloc.quantity}
+        </div>
+      `,
+        )
+        .join("");
+    }
+  }
 
   return `
     <tr data-item-code="${escapeHtml(item.item_code)}">
@@ -273,10 +354,16 @@ function renderItemAllocationRow(taskId, item) {
         <div class="d-flex flex-column gap-1.5" id="alloc-lines-${taskId}-${cssSafe(item.item_code)}">
           ${allocatedRowsHtml}
         </div>
+        ${
+          activeTab === "pending"
+            ? `
         <button type="button" class="btn btn-xs btn-link p-0 mt-1 add-split-btn text-decoration-none fw-semibold"
                 data-task-id="${taskId}" data-item-code="${escapeHtml(item.item_code)}" style="font-size:0.75rem;">
           <i class="bi bi-plus-circle me-1"></i>Split across another bin
         </button>
+        `
+            : ""
+        }
       </td>
     </tr>
   `;
@@ -332,6 +419,9 @@ function renderAllocationLine(taskId, item, alloc, idx) {
 // EXPANDED TASK INTERACTIONS
 // =========================================================================
 function wireUpExpandedTask(taskId) {
+  // If viewing the completed tab archive framework, lock modifications out completely
+  if (activeTab !== "pending") return;
+
   const container = document.getElementById(`alloc-body-${taskId}`);
   if (!container) return;
 
