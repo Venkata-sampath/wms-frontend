@@ -49,7 +49,7 @@ export async function render(container, user) {
           <div class="col-12 col-md-8">
             <div class="input-group input-group-sm">
               <span class="input-group-text bg-light border-end-0 text-muted"><i class="bi bi-search"></i></span>
-              <input type="text" id="ledger-search" class="form-control border-start-0 ps-0" style="font-size:0.8rem;" placeholder="Search by Invoice, Transaction ID, or Verifier...">
+              <input type="text" id="ledger-search" class="form-control border-start-0 ps-0" style="font-size:0.8rem;" placeholder="Search by Shipment ID, Client Code, Invoice, or Verifier...">
             </div>
           </div>
           <div class="col-12 col-md-4">
@@ -69,14 +69,14 @@ export async function render(container, user) {
           <table class="table table-hover align-middle mb-0" style="font-size: 0.85rem;">
             <thead class="table-light sticky-top small text-uppercase text-secondary" style="z-index: 10; font-size: 0.7rem; letter-spacing: 0.3px;">
               <tr>
-                <th scope="col" class="ps-3" style="min-width: 100px;">Transaction ID</th>
+                <th scope="col" class="ps-3" style="min-width: 120px;">Shipment ID</th>
+                <th scope="col" style="min-width: 110px;">Client Code</th>
                 <th scope="col" style="min-width: 90px;">Type</th>
                 <th scope="col" style="min-width: 140px;">Status</th>
                 <th scope="col" style="min-width: 125px;">Invoice Number</th>
-                <th scope="col" style="min-width: 100px;">Shipment ID</th>
                 <th scope="col" style="min-width: 120px;">Verified By</th>
-                <th scope="col" style="min-width: 145px;">Created</th>
-                <th scope="col" class="pe-3" style="min-width: 145px;">Completed</th>
+                <th scope="col" style="min-width: 145px;">Created At</th>
+                <th scope="col" class="pe-3" style="min-width: 145px;">Completed At</th>
               </tr>
             </thead>
             <tbody id="ledger-table-body">
@@ -185,8 +185,9 @@ export async function render(container, user) {
 
     const filtered = fullLedgerData.filter((row) => {
       const matchSearch =
+        (row.entity_id || "").toLowerCase().includes(query) ||
+        (row.client_code || "").toLowerCase().includes(query) ||
         (row.invoice_number || "").toLowerCase().includes(query) ||
-        (row.transaction_id || "").toLowerCase().includes(query) ||
         (row.verified_by || "").toLowerCase().includes(query);
 
       const matchType =
@@ -212,12 +213,12 @@ export async function render(container, user) {
 
         return `
         <tr class="ledger-row" style="cursor: pointer;" data-transaction-id="${row.transaction_id}">
-          <td class="ps-3"><small class="font-monospace text-secondary fw-semibold">${row.transaction_id.substring(0, 8)}...</small></td>
+          <td class="ps-3"><small class="font-monospace text-dark fw-semibold">${escapeHtml(row.entity_id || "—")}</small></td>
+          <td><span class="badge bg-light text-dark border font-monospace">${escapeHtml(row.client_code || "—")}</span></td>
           <td>${typeBadge(row.transaction_type)}</td>
           <td>${statusBadge(row.status)}</td>
-          <td class="fw-bold text-primary">${row.invoice_number || "—"}</td>
-          <td><small class="font-monospace text-muted">${(row.entity_id || "").substring(0, 8)}...</small></td>
-          <td><span class="small text-dark"><i class="bi bi-person me-1 text-muted"></i>${row.verified_by || "System"}</span></td>
+          <td class="fw-bold text-primary">${escapeHtml(row.invoice_number || "—")}</td>
+          <td><span class="small text-dark"><i class="bi bi-person me-1 text-muted"></i>${escapeHtml(row.verified_by || "System")}</span></td>
           <td class="text-muted small" style="font-size:0.75rem;">${createdStr}</td>
           <td class="pe-3 text-muted small" style="font-size:0.75rem;">${completedStr}</td>
         </tr>
@@ -361,7 +362,7 @@ export async function render(container, user) {
       </div>
     `;
 
-    // Section 2 — Shipment Information
+    // Section 2 — Shipment Information (MODIFIED: added Client Name and Client Code)
     const shipmentInfoSection = `
       <div class="card border-0 shadow-sm mb-3 rounded-3 overflow-hidden">
         <div class="card-header bg-white fw-bold text-uppercase small text-muted py-2.5">
@@ -370,6 +371,8 @@ export async function render(container, user) {
         <div class="card-body p-3">
           <div class="row g-2">
             ${infoField("Shipment ID", `<code class="font-monospace text-muted text-break" style="font-size:0.75rem;">${txt(header.id)}</code>`, "col-12 col-sm-6 col-md-4")}
+            ${infoField("Client Name", `<span class="fw-semibold text-dark">${txt(header.client_name || txn.client_name)}</span>`)}
+            ${infoField("Client Code", `<span class="badge bg-light text-dark border font-monospace">${txt(header.client_code || txn.client_code)}</span>`)}
             ${infoField("Invoice Number", `<span class="fw-bold text-primary">${txt(header.invoice_number)}</span>`)}
             ${infoField("Invoice Date", txt(header.invoice_date))}
             ${infoField("PO Number", txt(header.po_number))}
@@ -540,10 +543,6 @@ export async function render(container, user) {
   function formatTimestamp(raw) {
     if (!raw) return "—";
 
-    // D1's CURRENT_TIMESTAMP produces "YYYY-MM-DD HH:MM:SS" in UTC but with no
-    // timezone marker. `new Date(...)` on that string gets parsed as *local*
-    // browser time by most engines, which silently gives the wrong instant.
-    // Normalize to an unambiguous ISO UTC string first.
     let isoString = String(raw).trim();
     if (isoString.includes(" ") && !isoString.includes("T")) {
       isoString = isoString.replace(" ", "T");
@@ -564,7 +563,6 @@ export async function render(container, user) {
     });
   }
 
-  // Local helper configuration block utility for protecting inner context renderings
   function escapeHtml(value) {
     if (value === undefined || value === null) return "";
     return String(value)
@@ -574,13 +572,11 @@ export async function render(container, user) {
       .replace(/>/g, "&gt;");
   }
 
-  // Unified Event Registry Core Framework Listeners Wiring
   const root = document.getElementById("ledger-root");
   root.querySelector("#refresh-ledger-btn").onclick = () => loadLedger();
   root.querySelector("#ledger-search").oninput = () => renderFilteredTable();
   root.querySelector("#ledger-filter-type").onchange = () =>
     renderFilteredTable();
 
-  // Primary execution runtime dispatch
   await loadLedger();
 }

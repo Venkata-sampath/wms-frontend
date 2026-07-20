@@ -200,21 +200,43 @@ function renderTaskCard(task) {
   let subHeaderHtml = "";
   if (activeTab === "pending") {
     subHeaderHtml = `
-      <div class="text-muted mt-0.5 text-truncate" style="font-size:0.75rem;">
-        Shipment ID: <span class="fw-semibold text-secondary">${escapeHtml(task.shipment_id || "")}</span> · 
-        Created: ${createdAt} · 
-        Verified By: <span class="fw-semibold text-dark">${escapeHtml(task.verified_by || "—")}</span>
+      <div class="row g-2 text-dark small mt-1">
+        <div class="col-12 col-sm-6 col-md-3">
+          <span class="text-muted">Shipment ID :</span> <span class="font-monospace fw-semibold text-secondary">${escapeHtml(task.shipment_id || "—")}</span>
+        </div>
+        <div class="col-12 col-sm-6 col-md-3">
+          <span class="text-muted">Client Code :</span> <span class="badge bg-light text-dark border font-monospace">${escapeHtml(task.client_code || "—")}</span>
+        </div>
+        <div class="col-12 col-sm-6 col-md-3">
+          <span class="text-muted">Verified By :</span> <span class="fw-semibold text-dark">${escapeHtml(task.verified_by || "—")}</span>
+        </div>
+        <div class="col-12 col-sm-6 col-md-3">
+          <span class="text-muted">Created At :</span> <span class="fw-semibold text-dark">${createdAt}</span>
+        </div>
       </div>
     `;
   } else {
     const completedAt = formatTimestamp(task.completed_date_time);
     subHeaderHtml = `
-      <div class="text-muted mt-0.5 text-truncate" style="font-size:0.75rem;">
-        Shipment ID: <span class="fw-semibold text-secondary">${escapeHtml(task.shipment_id || "")}</span> · 
-        Created: ${createdAt} · 
-        Verified By: <span class="fw-semibold text-dark">${escapeHtml(task.verified_by || "—")}</span> · 
-        Completed By: <span class="fw-semibold text-dark">${escapeHtml(task.completed_by || "—")}</span> · 
-        Completed Date & Time: <span class="fw-semibold text-dark">${completedAt}</span>
+      <div class="row g-2 text-dark small mt-1">
+        <div class="col-12 col-sm-6 col-md-3">
+          <span class="text-muted">Shipment ID :</span> <span class="font-monospace fw-semibold text-secondary">${escapeHtml(task.shipment_id || "—")}</span>
+        </div>
+        <div class="col-12 col-sm-6 col-md-3">
+          <span class="text-muted">Client Code :</span> <span class="badge bg-light text-dark border font-monospace">${escapeHtml(task.client_code || "—")}</span>
+        </div>
+        <div class="col-12 col-sm-6 col-md-3">
+          <span class="text-muted">Verified By :</span> <span class="fw-semibold text-dark">${escapeHtml(task.verified_by || "—")}</span>
+        </div>
+        <div class="col-12 col-sm-6 col-md-3">
+          <span class="text-muted">Created At :</span> <span class="fw-semibold text-dark">${createdAt}</span>
+        </div>
+        <div class="col-12 col-sm-6 col-md-3">
+          <span class="text-muted">Completed By :</span> <span class="fw-semibold text-dark">${escapeHtml(task.completed_by || "—")}</span>
+        </div>
+        <div class="col-12 col-sm-6 col-md-3">
+          <span class="text-muted">Completed At :</span> <span class="fw-semibold text-dark">${completedAt}</span>
+        </div>
       </div>
     `;
   }
@@ -222,17 +244,17 @@ function renderTaskCard(task) {
   return `
     <div class="card shadow-sm border-0 rounded-3 mb-2 mb-md-3 animate-fade-in">
       <div class="card-body p-0">
-        <div class="task-header-toggle d-flex justify-content-between align-items-center p-2 p-sm-3" data-task-id="${task.id}" style="cursor:pointer;">
-          <div class="pe-2 text-truncate">
-            <div class="fw-bold text-dark text-truncate small-mobile-title" style="font-size:0.95rem;">
-              Invoice Number: ${task.invoice_number ? escapeHtml(task.invoice_number) : "—"}
-              <span class="badge bg-secondary text-white ms-1 rounded px-2" style="font-size:0.7rem;">${totalItems} SKU${totalItems === 1 ? "" : "s"}</span>
+        <div class="task-header-toggle p-2.5 p-sm-3" data-task-id="${task.id}" style="cursor:pointer;">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <span class="fw-bold fs-5 text-dark">Invoice ${task.invoice_number ? escapeHtml(task.invoice_number) : "—"}</span>
+              <span class="badge bg-secondary text-white rounded px-2" style="font-size:0.75rem;">${totalItems} SKU${totalItems === 1 ? "" : "s"}</span>
             </div>
-            ${subHeaderHtml}
+            <div class="flex-shrink-0 ps-2">
+              <i class="bi ${isExpanded ? "bi-chevron-up" : "bi-chevron-down"} fs-6 text-muted"></i>
+            </div>
           </div>
-          <div class="flex-shrink-0 ps-1">
-            <i class="bi ${isExpanded ? "bi-chevron-up" : "bi-chevron-down"} fs-6 text-muted"></i>
-          </div>
+          ${subHeaderHtml}
         </div>
 
         ${isExpanded ? renderTaskDetail(task) : ""}
