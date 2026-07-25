@@ -37,10 +37,9 @@ export async function render(container, currentUser) {
               <form id="create-so-form" novalidate>
                 
                 <div class="mb-3">
-                  <label for="so-client-search" class="form-label small fw-semibold text-muted">Parent Client *</label>
-                  <input type="text" id="so-client-search" class="form-control bg-light mb-1 form-control-sm" placeholder="🔍 Search client name or code...">
-                  <select id="so-client-id" class="form-select bg-light" required size="4" style="font-size:0.85rem;">
-                    <option value="" disabled>Loading clients...</option>
+                  <label for="so-client-id" class="form-label small fw-semibold text-muted">Parent Client *</label>
+                  <select id="so-client-id" class="form-select bg-light" required>
+                    <option value="" selected disabled>-- Select Parent Client --</option>
                   </select>
                 </div>
 
@@ -120,31 +119,9 @@ export async function render(container, currentUser) {
   let allClients = [];
   const alertAnchor = document.getElementById("so-alert-anchor");
   const clientSelect = document.getElementById("so-client-id");
-  const clientSearch = document.getElementById("so-client-search");
   const form = document.getElementById("create-so-form");
 
   await Promise.all([loadClients(), loadStockOwners()]);
-
-  // Client Search Filter Logic
-  clientSearch.addEventListener("input", (e) => {
-    const query = e.target.value.toLowerCase().trim();
-    clientSelect.innerHTML = "";
-    const filtered = allClients.filter(
-      (c) =>
-        c.name.toLowerCase().includes(query) ||
-        c.code.toLowerCase().includes(query),
-    );
-    if (filtered.length === 0) {
-      clientSelect.innerHTML = `<option value="" disabled>No matching clients</option>`;
-      return;
-    }
-    filtered.forEach((c) => {
-      const opt = document.createElement("option");
-      opt.value = c.id;
-      opt.textContent = `${c.name} (${c.code})`;
-      clientSelect.appendChild(opt);
-    });
-  });
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -184,8 +161,7 @@ export async function render(container, currentUser) {
         res.message || "Stock Owner created successfully.",
       );
       form.reset();
-      clientSearch.value = "";
-      loadClients();
+      await loadClients();
       await loadStockOwners();
     } catch (err) {
       renderAlert("danger", err.message);
@@ -197,12 +173,12 @@ export async function render(container, currentUser) {
   async function loadClients() {
     try {
       allClients = await Api.clients.list();
-      clientSelect.innerHTML = "";
-      allClients.forEach((c, idx) => {
+      clientSelect.innerHTML = `<option value="" selected disabled>-- Select Parent Client --</option>`;
+
+      allClients.forEach((c) => {
         const opt = document.createElement("option");
         opt.value = c.id;
         opt.textContent = `${c.name} (${c.code})`;
-        if (idx === 0) opt.selected = true;
         clientSelect.appendChild(opt);
       });
     } catch (err) {
