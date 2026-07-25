@@ -420,19 +420,6 @@ async function renderVerification(shipmentId) {
           <span class="small text-muted"><i class="bi bi-shield-fill-check text-success"></i> Form Validation System Active</span>
         </div>
 
-        <!-- NEW INTEGRATION BLOCK: CLIENT IDENTITY MATRIX SELECTION DROPDOWN -->
-        <div class="card bg-light border p-3 mb-4 shadow-sm">
-          <label for="shipment-client-select" class="form-label small fw-bold text-dark mb-1">
-            Choose Client Context Profile <span class="text-danger">*</span>
-          </label>
-          <select id="shipment-client-select" class="form-select required-field fw-semibold" required>
-            <option value="" disabled selected>-- Fetching available master client registers --</option>
-          </select>
-          <div class="form-text text-muted extra-small mt-1" style="font-size: 0.75rem;">
-            Assigning a client context links this physical inbound manifest to a specific customer account for audit tracing.
-          </div>
-        </div>
-
         <!-- CLIENT & STOCK OWNER IDENTITY MATRIX BLOCK -->
         <div class="card bg-light border p-3 mb-4 shadow-sm">
           <div class="row g-3">
@@ -528,7 +515,6 @@ async function renderVerification(shipmentId) {
   renderHeaderFields(staging.header);
   renderParties(staging.parties);
   renderLineItems(staging.lineItems || []);
-  populateClientDropdownSelector();
   populateClientAndStockOwnerSelectors();
 
   async function populateClientAndStockOwnerSelectors() {
@@ -546,7 +532,7 @@ async function renderVerification(shipmentId) {
         return;
       }
 
-      clientDropdown.innerHTML = `<option value="" disabled selected>-- Select assigned client owner profile * --</option>`;
+      clientDropdown.innerHTML = `<option value="" disabled selected>-- Select Client Context * --</option>`;
       clients.forEach((c) => {
         const opt = document.createElement("option");
         opt.value = c.id;
@@ -582,30 +568,6 @@ async function renderVerification(shipmentId) {
       });
     } catch (err) {
       clientDropdown.innerHTML = `<option value="" disabled>❌ Error synchronizing clients: ${err.message}</option>`;
-    }
-  }
-
-  async function populateClientDropdownSelector() {
-    const dropdown = document.getElementById("shipment-client-select");
-    if (!dropdown) return;
-
-    try {
-      const clients = await Api.clients.list();
-      if (!clients || clients.length === 0) {
-        dropdown.innerHTML = `<option value="" disabled>⚠️ No configured client records found inside this warehouse footprint.</option>`;
-        document.getElementById("commit-btn").disabled = true;
-        return;
-      }
-
-      dropdown.innerHTML = `<option value="" disabled selected>-- Select assigned client owner profile * --</option>`;
-      clients.forEach((c) => {
-        const opt = document.createElement("option");
-        opt.value = c.id;
-        opt.textContent = `${c.name} (${c.code})`;
-        dropdown.appendChild(opt);
-      });
-    } catch (err) {
-      dropdown.innerHTML = `<option value="" disabled>❌ Error synchronizing warehouse clients data: ${err.message}</option>`;
     }
   }
 
