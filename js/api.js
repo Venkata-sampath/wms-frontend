@@ -99,6 +99,20 @@ export const Api = {
     },
   },
 
+  // --- STOCK OWNER SERVICE INTERFACE ---
+  stockOwners: {
+    async list(clientId = null) {
+      const endpoint = clientId
+        ? `/api/stock-owners?client_id=${encodeURIComponent(clientId)}`
+        : "/api/stock-owners";
+      const res = await sendRequest("GET", endpoint);
+      return res.stock_owners || [];
+    },
+    async create(payload) {
+      return sendRequest("POST", "/api/stock-owners", payload);
+    },
+  },
+
   // --- SUPER ADMIN SERVICES (Isolated Ecosystem) ---
   superadmin: {
     async getWarehouses() {

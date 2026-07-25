@@ -433,6 +433,29 @@ async function renderVerification(shipmentId) {
           </div>
         </div>
 
+        <!-- CLIENT & STOCK OWNER IDENTITY MATRIX BLOCK -->
+        <div class="card bg-light border p-3 mb-4 shadow-sm">
+          <div class="row g-3">
+            <div class="col-12 col-md-6">
+              <label for="shipment-client-select" class="form-label small fw-bold text-dark mb-1">
+                Client Context <span class="text-danger">*</span>
+              </label>
+              <select id="shipment-client-select" class="form-select required-field fw-semibold" required>
+                <option value="" disabled selected>-- Select Client Context --</option>
+              </select>
+            </div>
+
+            <div class="col-12 col-md-6">
+              <label for="shipment-stock-owner-select" class="form-label small fw-bold text-dark mb-1">
+                Stock Owner <span class="text-danger">*</span>
+              </label>
+              <select id="shipment-stock-owner-select" class="form-select required-field fw-semibold" disabled required>
+                <option value="" disabled selected>-- Select Client First --</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
         <div class="fw-bold text-uppercase small text-secondary tracking-wider border-bottom pb-2 mb-3">
           1. Document Metadata & Financial Totals
         </div>
@@ -506,6 +529,61 @@ async function renderVerification(shipmentId) {
   renderParties(staging.parties);
   renderLineItems(staging.lineItems || []);
   populateClientDropdownSelector();
+  populateClientAndStockOwnerSelectors();
+
+  async function populateClientAndStockOwnerSelectors() {
+    const clientDropdown = document.getElementById("shipment-client-select");
+    const ownerDropdown = document.getElementById(
+      "shipment-stock-owner-select",
+    );
+    if (!clientDropdown || !ownerDropdown) return;
+
+    try {
+      const clients = await Api.clients.list();
+      if (!clients || clients.length === 0) {
+        clientDropdown.innerHTML = `<option value="" disabled>⚠️ No configured client records found.</option>`;
+        document.getElementById("commit-btn").disabled = true;
+        return;
+      }
+
+      clientDropdown.innerHTML = `<option value="" disabled selected>-- Select assigned client owner profile * --</option>`;
+      clients.forEach((c) => {
+        const opt = document.createElement("option");
+        opt.value = c.id;
+        opt.textContent = `${c.name} (${c.code})`;
+        clientDropdown.appendChild(opt);
+      });
+
+      // Cascading selection listener
+      clientDropdown.addEventListener("change", async (e) => {
+        const selectedClientId = e.target.value;
+        ownerDropdown.disabled = true;
+        ownerDropdown.innerHTML = `<option value="" disabled selected>Fetching stock owners...</option>`;
+
+        try {
+          const stockOwners = await Api.stockOwners.list(selectedClientId);
+          if (!stockOwners || stockOwners.length === 0) {
+            ownerDropdown.innerHTML = `<option value="" disabled>⚠️ No stock owners found for this client.</option>`;
+            return;
+          }
+
+          ownerDropdown.innerHTML = `<option value="" disabled selected>-- Select Stock Owner * --</option>`;
+          stockOwners.forEach((so) => {
+            const opt = document.createElement("option");
+            opt.value = so.id;
+            opt.textContent = `${so.name} (${so.code})`;
+            ownerDropdown.appendChild(opt);
+          });
+
+          ownerDropdown.disabled = false;
+        } catch (err) {
+          ownerDropdown.innerHTML = `<option value="" disabled>❌ Error loading stock owners</option>`;
+        }
+      });
+    } catch (err) {
+      clientDropdown.innerHTML = `<option value="" disabled>❌ Error synchronizing clients: ${err.message}</option>`;
+    }
+  }
 
   async function populateClientDropdownSelector() {
     const dropdown = document.getElementById("shipment-client-select");
@@ -897,10 +975,13 @@ async function commitShipment(shipmentId, workspace) {
   const selectedClientId = document.getElementById(
     "shipment-client-select",
   )?.value;
-  if (!selectedClientId) {
+  const selectedStockOwnerId = document.getElementById(
+    "shipment-stock-owner-select",
+  )?.value;
+
+  if (!selectedClientId || !selectedStockOwnerId) {
     statusEl.className = "small mt-2 text-danger fw-semibold";
-    statusEl.innerHTML = `<i class="bi bi-exclamation-octagon-fill"></i> Processing blocked: An active Client assignment mapping context parameter must be selected prior to transaction execution steps.`;
-    document.getElementById("shipment-client-select")?.focus();
+    statusEl.innerHTML = `<i class="bi bi-exclamation-octagon-fill"></i> Processing blocked: Both Client and Stock Owner must be selected prior to committing.`;
     return;
   }
 
@@ -995,6 +1076,7 @@ async function commitShipment(shipmentId, workspace) {
     const payload = {
       shipmentId,
       client_id: selectedClientId,
+      stock_owner_id: selectedStockOwnerId,
       header: headerData,
       parties: partiesData,
       lineItems,
