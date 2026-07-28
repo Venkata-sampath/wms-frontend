@@ -11,15 +11,10 @@ const API_BASE_URL = "https://wms.satyaramsl72.workers.dev";
  */
 async function sendRequest(method, endpoint, body = null) {
   const url = `${API_BASE_URL}${endpoint}`;
-
-  // Retrieve the JWT auth session token from storage
   const token = localStorage.getItem("wms_jwt_token");
 
-  const headers = {
-    "Content-Type": "application/json",
-  };
+  const headers = {};
 
-  // If a valid session token exists, automatically bind it to the request authorization chain
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
@@ -30,23 +25,25 @@ async function sendRequest(method, endpoint, body = null) {
   };
 
   if (body && (method === "POST" || method === "PUT" || method === "PATCH")) {
-    options.body = JSON.stringify(body);
+    if (body instanceof FormData) {
+      // Do NOT set Content-Type header when sending FormData!
+      // The browser will automatically set 'multipart/form-data; boundary=...'
+      options.body = body;
+    } else {
+      headers["Content-Type"] = "application/json";
+      options.body = JSON.stringify(body);
+    }
   }
 
   try {
     const response = await fetch(url, options);
 
-    // Parse response body safely as JSON if content exists.
-    // NOTE: some Worker endpoints forget to set Content-Type: application/json
-    // (they only send corsHeaders). Rather than silently returning {} in that
-    // case, we still attempt to parse the raw text as JSON.
     let data = {};
     const rawText = await response.text();
     if (rawText) {
       try {
         data = JSON.parse(rawText);
       } catch (parseErr) {
-        // Response wasn't JSON at all (e.g. plain text error) — leave data as {}
         console.warn(
           `[API Engine] Non-JSON response from ${endpoint}:`,
           rawText,
@@ -54,18 +51,16 @@ async function sendRequest(method, endpoint, body = null) {
       }
     }
 
-    // Intercept and handle authorization expirations natively
     if (response.status === 401) {
       localStorage.removeItem("wms_jwt_token");
       localStorage.removeItem("wms_user_profile");
-      // Forcefully redirect the user canvas loop back to the entry state if their login session expires
       window.dispatchEvent(new Event("auth-expired"));
       throw new Error(data.error || "Session expired. Please log in again.");
     }
 
     if (!response.ok) {
       throw new Error(
-        data.error || `Server responded with status status ${response.status}`,
+        data.error || `Server responded with status ${response.status}`,
       );
     }
 
@@ -116,20 +111,10 @@ export const Api = {
   // --- OPENING STOCK INGESTION ENGINE ---
   openingStock: {
     async validate(formData) {
-      const token = localStorage.getItem("wms_jwt_token");
-      return await fetch(`${API_BASE_URL}/api/opening-stock/validate`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      }).then((r) => r.json());
+      return sendRequest("POST", "/api/opening-stock/validate", formData);
     },
     async import(formData) {
-      const token = localStorage.getItem("wms_jwt_token");
-      return await fetch(`${API_BASE_URL}/api/opening-stock/import`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      }).then((r) => r.json());
+      return sendRequest("POST", "/api/opening-stock/import", formData);
     },
   },
 
@@ -186,12 +171,7 @@ export const Api = {
       return sendRequest("GET", `/api/shipments/staged?id=${shipmentId}`);
     },
     async upload(formData) {
-      const token = localStorage.getItem("wms_jwt_token");
-      return await fetch(`${API_BASE_URL}/api/inbound/upload`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` }, // No Content-Type for FormData
-        body: formData,
-      }).then((r) => r.json());
+      return sendRequest("POST", "/api/inbound/upload", formData);
     },
     async commit(payload) {
       return sendRequest("POST", "/api/shipments/commit", payload);
