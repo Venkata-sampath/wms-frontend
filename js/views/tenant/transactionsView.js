@@ -170,6 +170,8 @@ export async function render(container, user) {
     const norm = (type || "").toLowerCase();
     if (norm === "inbound")
       return `<span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2 py-1 rounded" style="font-size:0.65rem;">INBOUND</span>`;
+    if (norm === "opening_stock")
+      return `<span class="badge bg-info-subtle text-info border border-info-subtle px-2 py-1 rounded" style="font-size:0.65rem;">OPENING STOCK</span>`;
     if (norm === "outbound")
       return `<span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1 rounded" style="font-size:0.65rem;">OUTBOUND</span>`;
     return `<span class="badge bg-secondary text-white px-2 py-1 rounded" style="font-size:0.65rem;">${(type || "").toUpperCase()}</span>`;
@@ -235,27 +237,19 @@ export async function render(container, user) {
 
   async function openTransactionDetail(transactionId) {
     const modal = getModal();
-    const titleEl = document.getElementById("transaction-detail-title");
     const bodyEl = document.getElementById("transaction-detail-body");
 
-    titleEl.innerHTML = `<i class="bi bi-receipt text-primary me-2"></i>Transaction Framework Reference ID: <span class="font-monospace text-secondary" style="font-size:0.85rem;">${transactionId}</span>`;
-    bodyEl.innerHTML = `
-      <div class="text-center py-5 text-muted small">
-        <div class="spinner-border spinner-border-sm text-primary mb-2" role="status"></div>
-        <div>Loading extended itemization audits...</div>
-      </div>
-    `;
     modal.show();
 
     try {
       const detail = await Api.transactions.getDetails(transactionId);
-      bodyEl.innerHTML = renderInboundDetail(detail);
+      if (detail.transaction.transaction_type === "opening_stock") {
+        bodyEl.innerHTML = renderOpeningStockDetail(detail);
+      } else {
+        bodyEl.innerHTML = renderInboundDetail(detail);
+      }
     } catch (err) {
-      bodyEl.innerHTML = `
-        <div class="text-center text-danger py-4 small fw-semibold">
-          <i class="bi bi-exclamation-triangle-fill me-2 fs-6"></i>Failed to load transaction detail: ${err.message}
-        </div>
-      `;
+      bodyEl.innerHTML = `<div class="text-danger p-3">${err.message}</div>`;
     }
   }
 
@@ -540,6 +534,72 @@ export async function render(container, user) {
       lineItemsSection +
       discrepanciesSection
     );
+  }
+
+  function renderOpeningStockDetail(detail) {
+    const txn = detail.transaction || {};
+    const header = detail.import_header || {};
+    const items = detail.opening_stock_line_items || [];
+
+    return `
+    <div class="card border-0 shadow-sm mb-3 rounded-3">
+      <div class="card-header bg-white fw-bold text-uppercase small text-muted py-2">
+        Import Information
+      </div>
+      <div class="card-body p-3">
+        <div class="row g-2">
+          ${infoField("Transaction ID", `<code class="font-monospace text-primary">${txt(txn.id)}</code>`)}
+          ${infoField("Transaction Type", typeBadge(txn.transaction_type))}
+          ${infoField("Client", `<span class="fw-bold">${txt(header.client_name)} (${txt(header.client_code)})</span>`)}
+          ${infoField("Stock Owner", `<span class="fw-bold">${txt(header.stock_owner_name)} (${txt(header.stock_owner_code)})</span>`)}
+          ${infoField("Uploaded By", txt(header.uploaded_by))}
+          ${infoField("Total Rows", txt(header.total_rows))}
+          ${infoField("Created At", formatTimestamp(txn.created_at))}
+        </div>
+      </div>
+    </div>
+
+    <div class="card border-0 shadow-sm rounded-3">
+      <div class="card-header bg-white fw-bold text-uppercase small text-muted py-2">
+        Imported Items (${items.length})
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0" style="font-size:0.8rem;">
+          <thead class="table-light small">
+            <tr>
+              <th class="ps-3">Item Code</th>
+              <th>Description</th>
+              <th class="text-end">Quantity</th>
+              <th>UOM</th>
+              <th>Category</th>
+              <th>Batch Number</th>
+              <th>Mfg Date</th>
+              <th>Expiry Date</th>
+              <th class="pe-3">Location</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items
+              .map(
+                (item) => `
+              <tr>
+                <td class="ps-3 font-monospace fw-bold text-primary">${txt(item.item_code)}</td>
+                <td>${txt(item.item_description)}</td>
+                <td class="text-end fw-bold">${txt(item.quantity)}</td>
+                <td>${txt(item.uom)}</td>
+                <td><span class="badge bg-light text-dark border">${txt(item.category)}</span></td>
+                <td>${txt(item.batch_number)}</td>
+                <td>${txt(item.manufacturing_date)}</td>
+                <td>${txt(item.expiry_date)}</td>
+                <td class="pe-3 font-monospace fw-semibold text-success">${txt(item.location_id)}</td>
+              </tr>`,
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
   }
 
   function formatTimestamp(raw) {

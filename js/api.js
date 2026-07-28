@@ -113,6 +113,26 @@ export const Api = {
     },
   },
 
+  // --- OPENING STOCK INGESTION ENGINE ---
+  openingStock: {
+    async validate(formData) {
+      const token = localStorage.getItem("wms_jwt_token");
+      return await fetch(`${API_BASE_URL}/api/opening-stock/validate`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      }).then((r) => r.json());
+    },
+    async import(formData) {
+      const token = localStorage.getItem("wms_jwt_token");
+      return await fetch(`${API_BASE_URL}/api/opening-stock/import`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      }).then((r) => r.json());
+    },
+  },
+
   // --- SUPER ADMIN SERVICES (Isolated Ecosystem) ---
   superadmin: {
     async getWarehouses() {

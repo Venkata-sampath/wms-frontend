@@ -48,6 +48,7 @@ function getValidViewKeysForRole(role) {
     "tenant-dashboard",
     "tenant-inventory",
     "tenant-inbound",
+    "tenant-opening-stock",
     "tenant-putaway",
     "tenant-transactions",
     "tenant-locations",
@@ -173,6 +174,9 @@ async function loadView(viewKey, containerId) {
     case "tenant-inbound":
       modulePath = "./views/tenant/inboundView.js";
       break;
+    case "tenant-opening-stock":
+      modulePath = "./views/tenant/openingStockView.js";
+      break;
     case "tenant-putaway":
       modulePath = "./views/tenant/putawayView.js";
       break;
@@ -219,6 +223,7 @@ function buildMasterShellHTML(user) {
       <a class="nav-link" href="#" data-view="tenant-dashboard"><i class="bi bi-speedometer2"></i> <span>Dashboard</span></a>
       <a class="nav-link" href="#" data-view="tenant-inventory"><i class="bi bi-boxes"></i> <span>Live Inventory</span></a>
       <a class="nav-link" href="#" data-view="tenant-inbound"><i class="bi bi-truck-flatbed"></i> <span>Inbound Dock</span></a>
+      <a class="nav-link" href="#" data-view="tenant-opening-stock"><i class="bi bi-file-earmark-excel"></i> <span>Opening Stock</span></a>
       <a class="nav-link" href="#" data-view="tenant-putaway"><i class="bi bi-arrow-down-left-square"></i> <span>Putaway Tasks</span></a>
       <a class="nav-link" href="#" data-view="tenant-transactions"><i class="bi bi-journal-text"></i> <span>Audit Ledger</span></a>
       <a class="nav-link" href="#" data-view="tenant-locations"><i class="bi bi-grid-3x3-gap"></i> <span>Locations Blueprint</span></a>
