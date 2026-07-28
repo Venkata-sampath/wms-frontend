@@ -407,7 +407,7 @@ export async function render(container, user) {
       </div>
     `;
 
-    // Section 4 — Shipment Line Items
+    // Section 4 — Shipment Line Items (MODIFIED: Added Batch No. column)
     const lineItemRows = items
       .map(
         (item) => `
@@ -416,6 +416,7 @@ export async function render(container, user) {
           <td><code class="small fw-bold text-primary font-monospace">${txt(item.item_code)}</code></td>
           <td><div class="text-truncate text-secondary" style="max-width:140px;" title="${escapeHtml(item.item_description)}">${txt(item.item_description)}</div></td>
           <td><small class="font-monospace text-muted">${txt(item.hsn_sac)}</small></td>
+          <td><span class="badge bg-light text-dark border font-monospace">${txt(item.batch_number || item.batch_no)}</span></td>
           <td class="text-end fw-semibold text-dark">${txt(item.ordered_quantity)}</td>
           <td class="text-end fw-bold text-success">${txt(item.received_quantity)}</td>
           <td class="text-end text-danger">${txt(item.damaged_quantity)}</td>
@@ -452,6 +453,7 @@ export async function render(container, user) {
                   <th>SKU Code</th>
                   <th>Description</th>
                   <th>HSN/SAC</th>
+                  <th>Batch No.</th>
                   <th class="text-end">Ord</th>
                   <th class="text-end">Rec</th>
                   <th class="text-end">Dmg</th>
@@ -474,7 +476,7 @@ export async function render(container, user) {
                 </tr>
               </thead>
               <tbody>
-                ${lineItemRows || `<tr><td colspan="23" class="text-center text-muted py-3 small">No item rows compiled inside manifest registries.</td></tr>`}
+                ${lineItemRows || `<tr><td colspan="24" class="text-center text-muted py-3 small">No item rows compiled inside manifest registries.</td></tr>`}
               </tbody>
             </table>
           </div>

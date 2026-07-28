@@ -1,5 +1,14 @@
 import { Api } from "../../api.js";
 
+function escapeHtml(value) {
+  if (value === undefined || value === null) return "";
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 export async function render(container, user) {
   container.innerHTML = `
     <div class="container-fluid p-2 p-sm-3 p-md-4" id="inventory-root">
@@ -137,6 +146,7 @@ export async function render(container, user) {
                 <th scope="col" class="text-end">Qty</th>
                 <th scope="col" class="text-center">UOM</th>
                 <th scope="col" class="text-center">Category</th>
+                <th scope="col">Batch Number</th>
                 <th scope="col">Mfg Date</th>
                 <th scope="col">Expiry Date</th>
                 <th scope="col">Verified By</th>
@@ -147,7 +157,7 @@ export async function render(container, user) {
             </thead>
             <tbody id="inventory-table-body">
               <tr>
-                <td colspan="13" class="text-center py-5">
+                <td colspan="14" class="text-center py-5">
                   <div class="spinner-border spinner-border-sm text-primary me-2"></div>
                   Querying real-time trace ledgers...
                 </td>
@@ -172,7 +182,7 @@ export async function render(container, user) {
     } catch (err) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="13" class="text-center text-danger py-4">
+          <td colspan="14" class="text-center text-danger py-4">
             <i class="bi bi-exclamation-triangle-fill me-2"></i> Failed to retrieve inventory: ${err.message}
           </td>
         </tr>
@@ -292,7 +302,7 @@ export async function render(container, user) {
 
     const tbody = document.getElementById("inventory-table-body");
     const showClientCode = clientFilter === "all";
-    const totalCols = showClientCode ? 13 : 12;
+    const totalCols = showClientCode ? 14 : 13;
 
     // Update Header dynamic visibility for Client Code
     const thead = document.getElementById("inventory-table-head");
@@ -306,6 +316,7 @@ export async function render(container, user) {
           <th scope="col" class="text-end">Qty</th>
           <th scope="col" class="text-center">UOM</th>
           <th scope="col" class="text-center">Category</th>
+          <th scope="col">Batch Number</th>
           <th scope="col">Mfg Date</th>
           <th scope="col">Expiry Date</th>
           <th scope="col">Verified By</th>
@@ -590,6 +601,7 @@ export async function render(container, user) {
           <td class="text-end fw-bold">${qty.toLocaleString()}</td>
           <td class="text-center"><small class="text-uppercase text-muted fw-bold">${item.uom || ""}</small></td>
           <td class="text-center">${categoryDisplay}</td>
+          <td><small class="font-monospace text-dark">${item.batch_number ? escapeHtml(item.batch_number) : ""}</small></td>
           <td><small class="text-dark">${item.manufacturing_date || "-"}</small></td>
           <td><small class="text-dark">${item.expiry_date || "-"}</small></td>
           <td><small class="fw-semibold text-secondary">${item.verified_by || '<span class="text-muted">-</span>'}</small></td>

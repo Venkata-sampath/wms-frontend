@@ -286,6 +286,7 @@ function renderTaskDetail(task) {
               <th class="ps-1" style="min-width:100px;">SKU / Code</th>
               <th style="min-width:130px;">Description Title</th>
               <th style="width:90px;" class="text-center">Category</th>
+              <th style="width:110px;">Batch Number</th>
               <th style="width:100px;">Mfg Date</th>
               <th style="width:100px;">Expiry</th>
               <th style="width:70px;">Quantity</th>
@@ -362,6 +363,7 @@ function renderItemAllocationRow(taskId, item) {
       <td class="ps-1"><code class="small fw-bold font-monospace text-primary">${escapeHtml(item.item_code)}</code></td>
       <td><div class="text-secondary text-truncate" style="max-width:150px;" title="${escapeHtml(item.item_description)}">${escapeHtml(item.item_description)}</div></td>
       <td class="text-center">${categoryDisplay}</td>
+      <td class="small font-monospace text-dark">${item.batch_number ? escapeHtml(item.batch_number) : ""}</td>
       <td class="small text-muted">${item.manufacturing_date ? escapeHtml(item.manufacturing_date) : "—"}</td>
       <td class="small text-muted">${item.expiry_date ? escapeHtml(item.expiry_date) : "—"}</td>
       <td class="fw-bold text-dark">${item.quantity_to_place}</td>

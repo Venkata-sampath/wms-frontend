@@ -465,7 +465,7 @@ async function renderVerification(shipmentId) {
 
         <div class="mb-4 border rounded-3 shadow-sm overflow-hidden">
           <div class="table-responsive">
-            <table class="table table-sm table-hover mb-0 align-middle" style="min-width: 2980px;">
+            <table class="table table-sm table-hover mb-0 align-middle" style="min-width: 3120px;">
               <thead class="table-light">
                 <tr class="small text-secondary py-2">
                   <th style="width: 65px;" class="ps-2">Sl No.</th>
@@ -490,6 +490,7 @@ async function renderVerification(shipmentId) {
                   <th style="width: 90px; background: #fdf2f8;" class="text-center">Excess</th>
                   <th style="width: 220px;">Discrepancy Notes</th>
                   <th style="width: 130px;">Category <span class="text-danger">*</span></th>
+                  <th style="width: 140px;">Batch Number</th>
                   <th style="width: 150px;">Manufacturing Date</th>
                   <th style="width: 150px;">Expiry Date</th>
                   <th style="width: 80px;" class="text-center">Verified</th>
@@ -833,6 +834,7 @@ function getLineItemRowHtml(item, idx) {
         ).join("")}
       </select>
     </td>
+    <td><input type="text" class="form-control form-control-sm" id="item_batch_${idx}" value="${escapeAttr(item.batch_number ?? "")}"></td>
     <td><input type="date" class="form-control form-control-sm" id="item_manufacturing_${idx}" value="${escapeAttr(item.manufacturing_date ?? "")}"></td>
     <td><input type="date" class="form-control form-control-sm" id="item_expiry_${idx}" value="${escapeAttr(item.expiry_date ?? "")}"></td>
     <td class="text-center">
@@ -894,6 +896,7 @@ function addLineItemRow() {
       excess_quantity: 0,
       discrepancy_notes: "",
       category: "",
+      batch_number: "",
       expiry_date: "",
       manufacturing_date: "",
     },
@@ -1023,6 +1026,7 @@ async function commitShipment(shipmentId, workspace) {
         discrepancy_uom: document.getElementById(`item_uom_${idx}`).value,
         discrepancy_notes: document.getElementById(`item_notes_${idx}`).value,
         category: document.getElementById(`item_category_${idx}`).value,
+        batch_number: document.getElementById(`item_batch_${idx}`).value,
         expiry_date:
           document.getElementById(`item_expiry_${idx}`).value.trim() === ""
             ? null
