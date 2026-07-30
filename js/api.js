@@ -204,6 +204,41 @@ export const Api = {
     },
   },
 
+  // --- OUTBOUND SHIPMENT SERVICE INTERFACE (AI Upload + Manual Entry share verify/commit) ---
+  outbound: {
+    async listPending() {
+      return sendRequest("GET", "/api/outbound/pending");
+    },
+    async getStaged(shipmentId) {
+      return sendRequest("GET", `/api/outbound/staged?id=${shipmentId}`);
+    },
+    async upload(formData) {
+      return sendRequest("POST", "/api/outbound/upload", formData);
+    },
+    async verify(payload) {
+      return sendRequest("POST", "/api/outbound/verify", payload);
+    },
+    async commit(payload) {
+      return sendRequest("POST", "/api/outbound/commit", payload);
+    },
+  },
+
+  // --- PICKING TASK QUEUE MANAGEMENT ---
+  picking: {
+    async getPending() {
+      return sendRequest("GET", "/api/picking/pending");
+    },
+    async getCompleted() {
+      return sendRequest("GET", "/api/picking/completed");
+    },
+    async completeTask(pickingTaskId, pickedItemsArray) {
+      return sendRequest("POST", "/api/picking/complete", {
+        picking_task_id: pickingTaskId,
+        picked_items: pickedItemsArray,
+      });
+    },
+  },
+
   // --- REAL-TIME BALANCES AND TRACKING ---
   inventory: {
     async getSnapshot() {
