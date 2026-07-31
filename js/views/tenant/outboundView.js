@@ -7,7 +7,7 @@ let pollInterval = null;
 let activeShipmentId = null; // null for Manual Entry, set for AI Upload
 let clientsCache = [];
 let inventoryCache = [];
-let lineItems = []; // [{ uid, stock_owner_id, item_code, item_description, uom, requested_quantity }]
+let lineItems = []; // [{ uid, stock_owner_id, stock_owner_name, stock_owner_code, item_code, item_description, uom, requested_quantity, resolved }]
 let lastAllocations = null; // result of the last successful Verify call
 
 function uid() {
@@ -171,12 +171,25 @@ function setupEventListeners(container) {
     }
   });
 
-  container.querySelector("#start-manual-btn").addEventListener("click", () => {
-    activeShipmentId = null;
-    lineItems = [];
-    lastAllocations = null;
-    renderWorkspace(container, { header: {}, lineItems: [] });
-  });
+  container
+    .querySelector("#start-manual-btn")
+    .addEventListener("click", async () => {
+      activeShipmentId = null;
+      lineItems = [];
+      lastAllocations = null;
+      await refreshInventoryCache();
+      const root = document.getElementById("outbound-root");
+      renderWorkspace(root, { header: {}, lineItems: [] });
+    });
+}
+
+async function refreshInventoryCache() {
+  try {
+    const res = await Api.inventory.getSnapshot();
+    inventoryCache = res.inventory || [];
+  } catch (err) {
+    console.warn("Failed to update inventory snapshot:", err);
+  }
 }
 
 async function refreshQueue() {
@@ -217,7 +230,10 @@ async function refreshQueue() {
 async function openStagedShipment(shipmentId) {
   const root = document.getElementById("outbound-root");
   try {
-    const res = await Api.outbound.getStaged(shipmentId);
+    const [res] = await Promise.all([
+      Api.outbound.getStaged(shipmentId),
+      refreshInventoryCache(),
+    ]);
     activeShipmentId = shipmentId;
     lastAllocations = null;
     renderWorkspace(root, res.staging || { header: {}, lineItems: [] });
@@ -236,16 +252,214 @@ function stopPolling() {
 }
 
 // =========================================================================
+// AUTO-VALIDATION ENGINE (SECTION 12)
+// =========================================================================
+function runAutoValidationPass(selectedClientId) {
+  if (!selectedClientId) return;
+
+  const scopedInventory = inventoryCache.filter(
+    (i) => String(i.client_id) === String(selectedClientId),
+  );
+
+  lineItems.forEach((item) => {
+    const searchCode = String(item.item_code || "").trim();
+    if (!searchCode) {
+      item.resolved = false;
+      return;
+    }
+
+    const matches = scopedInventory.filter(
+      (inv) => inv.item_code === searchCode,
+    );
+
+    if (matches.length === 0) {
+      item.resolved = false;
+      return;
+    }
+
+    // Check if distinct stock owners exist across matching inventory items
+    const distinctStockOwners = [
+      ...new Set(matches.map((m) => String(m.stock_owner_id))),
+    ];
+
+    if (distinctStockOwners.length === 1) {
+      const target = matches[0];
+      item.item_code = target.item_code;
+      item.item_description = target.item_description || "";
+      item.uom = target.uom || "PCS";
+      item.stock_owner_id = target.stock_owner_id;
+      item.stock_owner_name = target.stock_owner_name || "";
+      item.stock_owner_code = target.stock_owner_code || "";
+      item.resolved = true;
+    } else {
+      item.resolved = false;
+    }
+  });
+}
+
+// =========================================================================
+// AUTOCOMPLETE ENGINE (SECTIONS 2-7)
+// =========================================================================
+function createAutocomplete(inputEl, fieldType, item, workspace) {
+  let dropdownEl = null;
+  let selectedIndex = -1;
+
+  function closeDropdown() {
+    if (dropdownEl) {
+      dropdownEl.remove();
+      dropdownEl = null;
+      selectedIndex = -1;
+    }
+  }
+
+  function getClientScopedUniqueInventory() {
+    const selectedClientId = workspace.querySelector("#client-select").value;
+    if (!selectedClientId) return [];
+
+    const scoped = inventoryCache.filter(
+      (inv) => String(inv.client_id) === String(selectedClientId),
+    );
+
+    const map = new Map();
+    scoped.forEach((inv) => {
+      const key = `${inv.item_code}|${inv.item_description}|${inv.uom}|${inv.stock_owner_id}`;
+      if (!map.has(key)) {
+        map.set(key, inv);
+      }
+    });
+
+    return Array.from(map.values());
+  }
+
+  function renderDropdown(matches) {
+    closeDropdown();
+    if (matches.length === 0) return;
+
+    dropdownEl = document.createElement("div");
+    dropdownEl.className =
+      "dropdown-menu show shadow-sm border rounded-3 p-1 position-absolute w-100";
+    dropdownEl.style.maxHeight = "220px";
+    dropdownEl.style.overflowY = "auto";
+    dropdownEl.style.zIndex = "1050";
+    dropdownEl.style.top = `${inputEl.offsetTop + inputEl.offsetHeight + 2}px`;
+    dropdownEl.style.left = `${inputEl.offsetLeft}px`;
+
+    matches.forEach((rec, idx) => {
+      const itemEl = document.createElement("a");
+      itemEl.href = "#";
+      itemEl.className =
+        "dropdown-item text-wrap py-2 border-bottom border-light small";
+      if (idx === matches.length - 1) itemEl.classList.remove("border-bottom");
+
+      const stockOwnerStr =
+        rec.stock_owner_name || rec.stock_owner_code
+          ? `${rec.stock_owner_name || ""} (${rec.stock_owner_code || ""})`.trim()
+          : "N/A";
+
+      itemEl.innerHTML = `<strong>${rec.item_code}</strong> | ${rec.item_description || "-"} | <span class="badge bg-light text-dark border">${rec.uom}</span> | <span class="text-primary">${stockOwnerStr}</span>`;
+
+      itemEl.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        selectRecord(rec);
+      });
+
+      dropdownEl.appendChild(itemEl);
+    });
+
+    const parentTd = inputEl.closest("td");
+    parentTd.style.position = "relative";
+    parentTd.appendChild(dropdownEl);
+  }
+
+  function selectRecord(rec) {
+    item.item_code = rec.item_code;
+    item.item_description = rec.item_description || "";
+    item.uom = rec.uom;
+    item.stock_owner_id = rec.stock_owner_id;
+    item.stock_owner_name = rec.stock_owner_name || "";
+    item.stock_owner_code = rec.stock_owner_code || "";
+    item.resolved = true;
+
+    closeDropdown();
+    renderLineItemsBody(workspace);
+  }
+
+  function updateHighlight() {
+    if (!dropdownEl) return;
+    const items = dropdownEl.querySelectorAll(".dropdown-item");
+    items.forEach((el, idx) => {
+      if (idx === selectedIndex) {
+        el.classList.add("active");
+        el.scrollIntoView({ block: "nearest" });
+      } else {
+        el.classList.remove("active");
+      }
+    });
+  }
+
+  inputEl.addEventListener("input", (e) => {
+    const query = e.target.value.trim().toLowerCase();
+    item[fieldType] = e.target.value;
+    item.resolved = false;
+
+    // Remove errors visual state on active edit
+    inputEl.classList.remove("is-invalid");
+
+    if (!query) {
+      closeDropdown();
+      return;
+    }
+
+    const scoped = getClientScopedUniqueInventory();
+    const matches = scoped.filter((inv) => {
+      const targetVal = String(inv[fieldType] || "").toLowerCase();
+      return targetVal.includes(query);
+    });
+
+    renderDropdown(matches);
+  });
+
+  inputEl.addEventListener("keydown", (e) => {
+    if (!dropdownEl) return;
+    const items = dropdownEl.querySelectorAll(".dropdown-item");
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      selectedIndex = (selectedIndex + 1) % items.length;
+      updateHighlight();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      selectedIndex = (selectedIndex - 1 + items.length) % items.length;
+      updateHighlight();
+    } else if (e.key === "Enter") {
+      if (selectedIndex >= 0 && items[selectedIndex]) {
+        e.preventDefault();
+        items[selectedIndex].dispatchEvent(new Event("mousedown"));
+      }
+    } else if (e.key === "Escape") {
+      closeDropdown();
+    }
+  });
+
+  inputEl.addEventListener("blur", () => {
+    setTimeout(closeDropdown, 200);
+  });
+}
+
+// =========================================================================
 // WORKSPACE — shared by AI Upload (pre-populated) and Manual Entry (blank)
 // =========================================================================
 function renderWorkspace(root, staging) {
   lineItems = (staging.lineItems || []).map((item) => ({
     uid: uid(),
-    stock_owner_id: "",
+    stock_owner_id: item.stock_owner_id || "",
+    stock_owner_name: item.stock_owner_name || "",
+    stock_owner_code: item.stock_owner_code || "",
     item_code: item.item_code || "",
     item_description: item.item_description || "",
     uom: item.uom || "PCS",
     requested_quantity: item.requested_quantity || 0,
+    resolved: false,
   }));
 
   const workspace = root.querySelector("#workspace");
@@ -255,7 +469,7 @@ function renderWorkspace(root, staging) {
 
       <div class="row g-3 mb-3">
         <div class="col-md-4">
-          <label class="form-label small fw-semibold">Client</label>
+          <label class="form-label small fw-semibold">Client <span class="text-danger">*</span></label>
           <select id="client-select" class="form-select form-select-sm">
             <option value="">Select client...</option>
             ${clientsCache.map((c) => `<option value="${c.id}">${c.name} (${c.code})</option>`).join("")}
@@ -275,19 +489,20 @@ function renderWorkspace(root, staging) {
         </div>
       </div>
 
-      <datalist id="item-code-list">
-        ${[...new Set(inventoryCache.map((i) => i.item_code))].map((c) => `<option value="${c}">`).join("")}
-      </datalist>
-
       <div class="d-flex justify-content-between align-items-center mb-2">
         <h6 class="fw-bold mb-0 small text-secondary">Line Items</h6>
-        <button id="add-line-btn" class="btn btn-sm btn-outline-primary"><i class="bi bi-plus-lg"></i> Add Line</button>
+        <button id="add-line-btn" class="btn btn-sm btn-outline-primary" disabled><i class="bi bi-plus-lg"></i> Add Line</button>
       </div>
 
-      <div class="table-responsive mb-3">
+      <div class="table-responsive mb-3" style="overflow-x: visible;">
         <table class="table table-sm align-middle">
           <thead class="table-light"><tr>
-            <th>Item Code</th><th>Description</th><th>Stock Owner</th><th>UOM</th><th>Qty</th><th></th>
+            <th style="width:25%">Item Code</th>
+            <th style="width:30%">Description</th>
+            <th style="width:25%">Stock Owner</th>
+            <th style="width:10%">UOM</th>
+            <th style="width:10%">Qty</th>
+            <th></th>
           </tr></thead>
           <tbody id="line-items-body"></tbody>
         </table>
@@ -303,16 +518,28 @@ function renderWorkspace(root, staging) {
     </div>
   `;
 
-  renderLineItemsBody(workspace);
+  const clientSelect = workspace.querySelector("#client-select");
+
+  clientSelect.addEventListener("change", () => {
+    const clientId = clientSelect.value;
+    if (clientId) {
+      runAutoValidationPass(clientId);
+    }
+    renderLineItemsBody(workspace);
+  });
 
   workspace.querySelector("#add-line-btn").addEventListener("click", () => {
+    if (!clientSelect.value) return;
     lineItems.push({
       uid: uid(),
       stock_owner_id: "",
+      stock_owner_name: "",
+      stock_owner_code: "",
       item_code: "",
       item_description: "",
       uom: "PCS",
       requested_quantity: 0,
+      resolved: false,
     });
     renderLineItemsBody(workspace);
   });
@@ -323,61 +550,77 @@ function renderWorkspace(root, staging) {
   workspace
     .querySelector("#commit-btn")
     .addEventListener("click", () => runCommit(workspace));
+
+  renderLineItemsBody(workspace);
 }
 
 function renderLineItemsBody(workspace) {
   const body = workspace.querySelector("#line-items-body");
+  const clientSelect = workspace.querySelector("#client-select");
+  const addLineBtn = workspace.querySelector("#add-line-btn");
+  const isClientSelected = Boolean(clientSelect.value);
+
+  addLineBtn.disabled = !isClientSelected;
+
   body.innerHTML = lineItems
-    .map(
-      (item) => `<tr data-uid="${item.uid}">
-      <td><input type="text" list="item-code-list" class="form-control form-control-sm" data-field="item_code" value="${item.item_code}"></td>
-      <td><input type="text" class="form-control form-control-sm" data-field="item_description" value="${item.item_description}"></td>
-      <td><select class="form-select form-select-sm" data-field="stock_owner_id"><option value="">...</option></select></td>
-      <td><input type="text" class="form-control form-control-sm" style="width:80px" data-field="uom" value="${item.uom}"></td>
-      <td><input type="number" min="0" step="any" class="form-control form-control-sm" style="width:100px" data-field="requested_quantity" value="${item.requested_quantity}"></td>
-      <td><button class="btn btn-sm btn-link text-danger" data-remove-line><i class="bi bi-trash"></i></button></td>
-    </tr>`,
-    )
+    .map((item) => {
+      const stockOwnerDisplay =
+        item.stock_owner_name || item.stock_owner_code
+          ? `${item.stock_owner_name || ""} (${item.stock_owner_code || ""})`.trim()
+          : "-";
+
+      const isInvalid = !item.resolved;
+
+      return `<tr data-uid="${item.uid}">
+      <td>
+        <input type="text" class="form-control form-control-sm ${isInvalid ? "is-invalid" : ""}" data-field="item_code" value="${item.item_code}" ${!isClientSelected ? "disabled" : ""} placeholder="Search code...">
+      </td>
+      <td>
+        <input type="text" class="form-control form-control-sm" data-field="item_description" value="${item.item_description}" ${!isClientSelected ? "disabled" : ""} placeholder="Search description...">
+      </td>
+      <td>
+        <input type="text" class="form-control form-control-sm bg-light text-muted" value="${stockOwnerDisplay}" readonly tabindex="-1">
+      </td>
+      <td>
+        <input type="text" class="form-control form-control-sm bg-light text-muted" style="width:80px" value="${item.uom}" readonly tabindex="-1">
+      </td>
+      <td>
+        <input type="number" min="0" step="any" class="form-control form-control-sm" style="width:100px" data-field="requested_quantity" value="${item.requested_quantity}">
+      </td>
+      <td>
+        <button class="btn btn-sm btn-link text-danger" data-remove-line><i class="bi bi-trash"></i></button>
+      </td>
+    </tr>`;
+    })
     .join("");
 
   body.querySelectorAll("tr").forEach((row) => {
     const itemUid = row.getAttribute("data-uid");
     const item = lineItems.find((l) => l.uid === itemUid);
 
-    row.querySelectorAll("[data-field]").forEach((input) => {
-      input.addEventListener("input", () => {
-        item[input.getAttribute("data-field")] = input.value;
-      });
+    const codeInput = row.querySelector('[data-field="item_code"]');
+    const descInput = row.querySelector('[data-field="item_description"]');
+    const qtyInput = row.querySelector('[data-field="requested_quantity"]');
+
+    if (isClientSelected) {
+      createAutocomplete(codeInput, "item_code", item, workspace);
+      createAutocomplete(descInput, "item_description", item, workspace);
+    }
+
+    qtyInput.addEventListener("input", () => {
+      item.requested_quantity = parseFloat(qtyInput.value) || 0;
     });
 
     row.querySelector("[data-remove-line]").addEventListener("click", () => {
       lineItems = lineItems.filter((l) => l.uid !== itemUid);
       renderLineItemsBody(workspace);
     });
-
-    const clientId = workspace.querySelector("#client-select").value;
-    const stockOwnerSelect = row.querySelector('[data-field="stock_owner_id"]');
-    if (clientId) {
-      Api.stockOwners.list(clientId).then((owners) => {
-        stockOwnerSelect.innerHTML =
-          `<option value="">Select...</option>` +
-          owners
-            .map(
-              (o) =>
-                `<option value="${o.id}" ${o.id === item.stock_owner_id ? "selected" : ""}>${o.name} (${o.code})</option>`,
-            )
-            .join("");
-      });
-    }
   });
-
-  workspace
-    .querySelector("#client-select")
-    .addEventListener("change", () => renderLineItemsBody(workspace), {
-      once: true,
-    });
 }
 
+// =========================================================================
+// VERIFY & COMMIT ENGINE (SECTIONS 13 & 14)
+// =========================================================================
 async function runVerify(workspace) {
   const errorsEl = workspace.querySelector("#verify-errors");
   const accordionEl = workspace.querySelector("#allocation-accordion");
@@ -387,6 +630,30 @@ async function runVerify(workspace) {
   commitBtn.disabled = true;
 
   const client_id = workspace.querySelector("#client-select").value;
+
+  if (!client_id) {
+    errorsEl.innerHTML = `<div class="alert alert-danger small mb-0">Please select a Client before verifying.</div>`;
+    return;
+  }
+
+  // Pre-validate resolution status across all line items (Section 13)
+  let hasUnresolved = false;
+  lineItems.forEach((l) => {
+    if (!l.resolved) {
+      hasUnresolved = true;
+      const tr = workspace.querySelector(`tr[data-uid="${l.uid}"]`);
+      if (tr) {
+        const codeInput = tr.querySelector('[data-field="item_code"]');
+        if (codeInput) codeInput.classList.add("is-invalid");
+      }
+    }
+  });
+
+  if (hasUnresolved) {
+    errorsEl.innerHTML = `<div class="alert alert-danger small mb-0">One or more line items are not resolved to valid client inventory records. Please select valid items using the autocomplete dropdown.</div>`;
+    return;
+  }
+
   const payload = {
     client_id,
     header: {
@@ -438,6 +705,34 @@ async function runCommit(workspace) {
   commitBtn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Committing...`;
 
   const client_id = workspace.querySelector("#client-select").value;
+
+  if (!client_id) {
+    errorsEl.innerHTML = `<div class="alert alert-danger small mb-0">Please select a Client before committing.</div>`;
+    commitBtn.disabled = false;
+    commitBtn.innerHTML = `<i class="bi bi-send-check"></i> Commit`;
+    return;
+  }
+
+  // Pre-validate resolution status before commit
+  let hasUnresolved = false;
+  lineItems.forEach((l) => {
+    if (!l.resolved) {
+      hasUnresolved = true;
+      const tr = workspace.querySelector(`tr[data-uid="${l.uid}"]`);
+      if (tr) {
+        const codeInput = tr.querySelector('[data-field="item_code"]');
+        if (codeInput) codeInput.classList.add("is-invalid");
+      }
+    }
+  });
+
+  if (hasUnresolved) {
+    errorsEl.innerHTML = `<div class="alert alert-danger small mb-0">Cannot commit: One or more line items are unresolved. Please resolve all line items first.</div>`;
+    commitBtn.disabled = false;
+    commitBtn.innerHTML = `<i class="bi bi-send-check"></i> Commit`;
+    return;
+  }
+
   const payload = {
     shipmentId: activeShipmentId,
     client_id,
@@ -457,11 +752,10 @@ async function runCommit(workspace) {
 
   try {
     await Api.outbound.commit(payload);
-    workspace.querySelector("#workspace") || null;
     document
       .getElementById("outbound-root")
       .querySelector("#workspace").innerHTML =
-      `<div class="alert alert-success">Outbound order committed. Picking task generated — see Picking Tasks.</div>`;
+      `<div class="alert alert-success"><i class="bi bi-check-circle me-2"></i>Outbound order committed. Picking task generated — see Picking Tasks.</div>`;
     activeShipmentId = null;
     refreshQueue();
   } catch (err) {
