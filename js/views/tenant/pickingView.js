@@ -4,17 +4,41 @@ import { Api } from "../../api.js";
 // MODULE STATE
 // =========================================================================
 let pollInterval = null;
-let activeTab = "pending";
 let tasksCache = [];
+let expandedTaskId = null;
+let activeTab = "pending";
+let checkedItemsState = {}; // { [taskId]: Set(itemId) }
 
+// =========================================================================
+// ENTRY POINT
+// =========================================================================
 export async function render(container, user) {
   stopPolling();
-  activeTab = "pending";
   tasksCache = [];
+  expandedTaskId = null;
+  activeTab = "pending";
+  checkedItemsState = {};
 
   container.innerHTML = `
-    <div class="container-fluid p-2 p-sm-4 animate-fade-in" id="picking-root">
+    <style>
+      .verify-checkbox {
+        border: 2px solid #198754 !important;
+        width: 1.25em;
+        height: 1.25em;
+        cursor: pointer;
+        transition: border-color 0.15s ease-in-out, background-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+      }
+      .verify-checkbox:checked {
+        background-color: #198754 !important;
+        border-color: #198754 !important;
+      }
+      .verify-checkbox:focus {
+        box-shadow: 0 0 0 0.25rem rgba(25, 135, 84, 0.25) !important;
+        border-color: #198754 !important;
+      }
+    </style>
 
+    <div class="container-fluid p-2 p-sm-4 animate-fade-in" id="picking-root">
       <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-3 mb-md-4 pb-2 border-bottom">
         <div class="mb-2 mb-md-0">
           <h4 class="fw-bold text-dark mb-1">
@@ -30,8 +54,12 @@ export async function render(container, user) {
       </div>
 
       <ul class="nav nav-tabs mb-3" id="picking-tabs" role="tablist">
-        <li class="nav-item"><button class="nav-link active fw-semibold text-sm" data-tab="pending" type="button">Pending Tasks</button></li>
-        <li class="nav-item"><button class="nav-link fw-semibold text-sm" data-tab="completed" type="button">Completed Tasks</button></li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active fw-semibold text-sm" id="pending-tab" data-tab="pending" type="button" role="tab">Pending Tasks</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link fw-semibold text-sm" id="completed-tab" data-tab="completed" type="button" role="tab">Completed Tasks</button>
+        </li>
       </ul>
 
       <div id="picking-list">
@@ -54,11 +82,16 @@ export async function render(container, user) {
         .forEach((b) => b.classList.remove("active"));
       e.target.classList.add("active");
       activeTab = e.target.dataset.tab;
+      expandedTaskId = null;
+
       const listEl = document.getElementById("picking-list");
       if (listEl) {
-        listEl.innerHTML = `<div class="text-center text-muted py-5">
-          <div class="spinner-border spinner-border-sm text-primary mb-2" role="status"></div>
-          <div class="small">Loading ${activeTab} picking tasks...</div></div>`;
+        listEl.innerHTML = `
+          <div class="text-center text-muted py-5">
+            <div class="spinner-border spinner-border-sm text-primary mb-2" role="status"></div>
+            <div class="small">Loading ${activeTab} picking tasks...</div>
+          </div>
+        `;
       }
       refreshTasks();
     });
@@ -66,6 +99,23 @@ export async function render(container, user) {
 
   await refreshTasks();
   startPolling();
+}
+
+// =========================================================================
+// POLLING & DATA FETCHING
+// =========================================================================
+function startPolling() {
+  stopPolling();
+  pollInterval = setInterval(() => {
+    if (!expandedTaskId) refreshTasks();
+  }, 10000);
+}
+
+function stopPolling() {
+  if (pollInterval) {
+    clearInterval(pollInterval);
+    pollInterval = null;
+  }
 }
 
 async function refreshTasks() {
@@ -79,111 +129,320 @@ async function refreshTasks() {
         : await Api.picking.getCompleted();
     tasksCache = res.tasks || [];
 
-    if (tasksCache.length === 0) {
-      listEl.innerHTML = `<div class="card border-0 p-5 shadow-sm text-center text-muted rounded-3">
-        <i class="bi bi-inboxes text-muted display-6 d-block mb-3"></i>
-        No ${activeTab} picking tasks.
-      </div>`;
-      return;
-    }
+    if (expandedTaskId) return;
 
-    listEl.innerHTML = `<div class="accordion" id="picking-accordion">${tasksCache.map((t, idx) => renderTaskCard(t, idx)).join("")}</div>`;
-
-    tasksCache.forEach((t, idx) => {
-      const completeBtn = document.getElementById(`complete-btn-${idx}`);
-      if (completeBtn) {
-        completeBtn.addEventListener("click", () => completePicking(t, idx));
-      }
-    });
+    renderTaskList(listEl);
   } catch (err) {
-    listEl.innerHTML = `<div class="alert alert-danger">${err.message}</div>`;
+    listEl.innerHTML = `
+      <div class="alert alert-danger border-0 shadow-sm text-center small py-3 px-3 rounded-3">
+        <i class="bi bi-exclamation-octagon-fill me-2 fs-6"></i>Failed to load picking tasks: ${escapeHtml(err.message)}
+      </div>
+    `;
   }
 }
 
-function renderTaskCard(task, idx) {
-  const itemsHtml = (task.items || [])
-    .map(
-      (item) => `<tr data-item-id="${item.id}">
-        <td>${item.item_code}<div class="text-muted small">${item.item_description || ""}</div></td>
-        <td>${item.location_id}</td>
-        <td>${item.batch_number || "-"}</td>
-        <td>${item.expiry_date || "-"}</td>
-        <td>${item.quantity_to_pick} ${item.uom}</td>
-        <td>
-          ${
-            activeTab === "pending"
-              ? `<input type="number" class="form-control form-control-sm picked-qty-input" style="width:100px" min="0" step="any" max="${item.quantity_to_pick}" value="${item.quantity_to_pick}">`
-              : `<span class="badge bg-success-subtle text-success-emphasis">${item.status}</span>`
-          }
-        </td>
-      </tr>`,
-    )
-    .join("");
+// =========================================================================
+// UI CARD RENDERING
+// =========================================================================
+function renderTaskList(listEl) {
+  if (tasksCache.length === 0) {
+    listEl.innerHTML = `
+      <div class="card p-4 p-sm-5 shadow-sm text-center text-muted border-0 rounded-3">
+        <i class="bi bi-inboxes display-6 d-block mb-2 text-secondary"></i>
+        <p class="fw-bold mb-1">No picking tasks ${activeTab}</p>
+        <small class="text-muted">${activeTab === "pending" ? "Commit an outbound order to generate a picking task automatically." : "Completed tasks will be archived here."}</small>
+      </div>
+    `;
+    return;
+  }
+
+  listEl.innerHTML = tasksCache.map((task) => renderTaskCard(task)).join("");
+
+  listEl.querySelectorAll(".task-header-toggle").forEach((el) => {
+    el.addEventListener("click", () => {
+      const taskId = el.dataset.taskId;
+      expandedTaskId = expandedTaskId === taskId ? null : taskId;
+      renderTaskList(listEl);
+    });
+  });
+
+  if (expandedTaskId) {
+    wireUpExpandedTask(expandedTaskId);
+  }
+}
+
+function renderTaskCard(task) {
+  const isExpanded = task.id === expandedTaskId;
+  const createdAt = formatTimestamp(task.created_at);
+  const totalItems = (task.items || []).length;
+  const clientTitle = `${escapeHtml(task.client_name || "Unknown Client")} (${escapeHtml(task.client_code || "N/A")})`;
+
+  let subHeaderHtml = "";
+  if (activeTab === "pending") {
+    subHeaderHtml = `
+      <div class="row g-2 text-dark small mt-1">
+        <div class="col-12 col-sm-6 col-md-4 col-lg-2">
+          <span class="text-muted">E-Way Bill :</span> <span class="fw-semibold text-dark">${escapeHtml(task.eway_bill_number || "—")}</span>
+        </div>
+        <div class="col-12 col-sm-6 col-md-4 col-lg-2">
+          <span class="text-muted">Vehicle No :</span> <span class="fw-semibold text-dark">${escapeHtml(task.vehicle_number || "—")}</span>
+        </div>
+        <div class="col-12 col-sm-6 col-md-4 col-lg-3">
+          <span class="text-muted">Transporter :</span> <span class="fw-semibold text-dark">${escapeHtml(task.transporter_name || "—")}</span>
+        </div>
+        <div class="col-12 col-sm-6 col-md-4 col-lg-2">
+          <span class="text-muted">Created By :</span> <span class="fw-semibold text-dark">${escapeHtml(task.created_by || "—")}</span>
+        </div>
+        <div class="col-12 col-sm-6 col-md-4 col-lg-3">
+          <span class="text-muted">Created At :</span> <span class="fw-semibold text-dark">${createdAt}</span>
+        </div>
+      </div>
+    `;
+  } else {
+    const completedAt = formatTimestamp(task.completed_at);
+    subHeaderHtml = `
+      <div class="row g-2 text-dark small mt-1">
+        <div class="col-12 col-sm-6 col-md-4 col-lg-2">
+          <span class="text-muted">E-Way Bill :</span> <span class="fw-semibold text-dark">${escapeHtml(task.eway_bill_number || "—")}</span>
+        </div>
+        <div class="col-12 col-sm-6 col-md-4 col-lg-2">
+          <span class="text-muted">Vehicle No :</span> <span class="fw-semibold text-dark">${escapeHtml(task.vehicle_number || "—")}</span>
+        </div>
+        <div class="col-12 col-sm-6 col-md-4 col-lg-3">
+          <span class="text-muted">Transporter :</span> <span class="fw-semibold text-dark">${escapeHtml(task.transporter_name || "—")}</span>
+        </div>
+        <div class="col-12 col-sm-6 col-md-4 col-lg-2">
+          <span class="text-muted">Created By :</span> <span class="fw-semibold text-dark">${escapeHtml(task.created_by || "—")}</span>
+        </div>
+        <div class="col-12 col-sm-6 col-md-4 col-lg-3">
+          <span class="text-muted">Created At :</span> <span class="fw-semibold text-dark">${createdAt}</span>
+        </div>
+        <div class="col-12 col-sm-6 col-md-4 col-lg-2">
+          <span class="text-muted">Completed By :</span> <span class="fw-semibold text-dark">${escapeHtml(task.completed_by || "—")}</span>
+        </div>
+        <div class="col-12 col-sm-6 col-md-4 col-lg-3">
+          <span class="text-muted">Completed At :</span> <span class="fw-semibold text-dark">${completedAt}</span>
+        </div>
+      </div>
+    `;
+  }
 
   return `
-    <div class="accordion-item mb-2 border rounded-3 overflow-hidden">
-      <h2 class="accordion-header">
-        <button class="accordion-button ${idx === 0 ? "" : "collapsed"}" type="button" data-bs-toggle="collapse" data-bs-target="#picking-task-${idx}">
-          <div class="d-flex flex-column">
-            <span class="fw-semibold">${task.client_name || "Unknown Client"} <span class="text-muted small">(${task.client_code || ""})</span></span>
-            <span class="text-muted small">E-Way Bill: ${task.eway_bill_number || "-"} • Vehicle: ${task.vehicle_number || "-"} • ${(task.items || []).length} item(s)</span>
+    <div class="card shadow-sm border-0 rounded-3 mb-2 mb-md-3 animate-fade-in">
+      <div class="card-body p-0">
+        <div class="task-header-toggle p-2.5 p-sm-3" data-task-id="${task.id}" style="cursor:pointer;">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <span class="fw-bold fs-5 text-dark">${clientTitle}</span>
+              <span class="badge bg-secondary text-white rounded px-2" style="font-size:0.75rem;">${totalItems} Item${totalItems === 1 ? "" : "s"}</span>
+            </div>
+            <div class="flex-shrink-0 ps-2">
+              <i class="bi ${isExpanded ? "bi-chevron-up" : "bi-chevron-down"} fs-6 text-muted"></i>
+            </div>
           </div>
-        </button>
-      </h2>
-      <div id="picking-task-${idx}" class="accordion-collapse collapse ${idx === 0 ? "show" : ""}" data-bs-parent="#picking-accordion">
-        <div class="accordion-body p-3">
-          <div class="table-responsive">
-            <table class="table table-sm align-middle mb-3">
-              <thead class="table-light"><tr><th>Item</th><th>Location</th><th>Batch</th><th>Expiry</th><th>Allocated</th><th>${activeTab === "pending" ? "Picked Qty" : "Status"}</th></tr></thead>
-              <tbody>${itemsHtml}</tbody>
-            </table>
-          </div>
-          ${
-            activeTab === "pending"
-              ? `<button id="complete-btn-${idx}" class="btn btn-success"><i class="bi bi-check2-circle"></i> Complete Picking</button>`
-              : `<span class="text-muted small">Completed by ${task.completed_by || "-"} at ${task.completed_at ? new Date(task.completed_at).toLocaleString() : "-"}</span>`
-          }
+          ${subHeaderHtml}
         </div>
+
+        ${isExpanded ? renderTaskDetail(task) : ""}
       </div>
     </div>
   `;
 }
 
-async function completePicking(task, idx) {
-  const card = document.querySelectorAll("#picking-accordion .accordion-item")[
-    idx
-  ];
-  const btn = document.getElementById(`complete-btn-${idx}`);
-  btn.disabled = true;
-  btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Completing...`;
+function renderTaskDetail(task) {
+  if (!checkedItemsState[task.id]) {
+    checkedItemsState[task.id] = new Set();
+  }
 
-  const pickedItems = [];
-  card.querySelectorAll("tr[data-item-id]").forEach((row) => {
-    const input = row.querySelector(".picked-qty-input");
-    if (!input) return;
-    pickedItems.push({
-      picking_task_item_id: row.getAttribute("data-item-id"),
-      picked_quantity: parseFloat(input.value) || 0,
+  const taskCheckedSet = checkedItemsState[task.id];
+  const allChecked =
+    (task.items || []).length > 0 &&
+    task.items.every((item) => taskCheckedSet.has(item.id));
+
+  const rowsHtml = (task.items || [])
+    .map((item) => {
+      const isChecked = taskCheckedSet.has(item.id);
+      return `
+      <tr data-item-id="${item.id}">
+        <td class="ps-1"><code class="small fw-bold font-monospace text-primary">${escapeHtml(item.item_code)}</code></td>
+        <td><div class="text-secondary text-truncate" style="max-width:200px;" title="${escapeHtml(item.item_description || "")}">${escapeHtml(item.item_description || "—")}</div></td>
+        <td><span class="badge bg-light text-dark border font-monospace">${escapeHtml(item.location_id)}</span></td>
+        <td class="small font-monospace text-dark">${escapeHtml(item.batch_number || "—")}</td>
+        <td class="small text-muted">${formatDateOnly(item.manufacturing_date)}</td>
+        <td class="small text-muted">${formatDateOnly(item.expiry_date)}</td>
+        <td class="fw-bold text-dark">${item.quantity_to_pick}</td>
+        <td><small class="text-uppercase text-muted fw-bold">${escapeHtml(item.uom || "PCS")}</small></td>
+        <td class="text-center">
+          ${
+            activeTab === "pending"
+              ? `<input type="checkbox" class="form-check-input verify-checkbox line-item-verify-cb" data-task-id="${task.id}" data-item-id="${item.id}" ${isChecked ? "checked" : ""}>`
+              : `<span class="badge bg-success-subtle text-success-emphasis border border-success-subtle">Verified</span>`
+          }
+        </td>
+      </tr>
+    `;
+    })
+    .join("");
+
+  return `
+    <div class="border-top p-2 p-sm-3 bg-light bg-opacity-25">
+      <div class="table-responsive mb-2 mb-md-3">
+        <table class="table table-sm table-hover align-middle mb-0" style="font-size:0.85rem;">
+          <thead class="table-light small text-uppercase" style="font-size:0.7rem;">
+            <tr>
+              <th class="ps-1" style="min-width:110px;">Item Code</th>
+              <th style="min-width:160px;">Item Description</th>
+              <th style="width:110px;">Location</th>
+              <th style="width:110px;">Batch Number</th>
+              <th style="width:110px;">Mfg Date</th>
+              <th style="width:110px;">Expiry Date</th>
+              <th style="width:80px;">Quantity</th>
+              <th style="width:70px;">UOM</th>
+              <th style="width:100px;" class="text-center">Verification</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </div>
+
+      ${
+        activeTab === "pending"
+          ? `
+      <div id="picking-error-${task.id}" class="alert alert-danger py-2 px-3 small border-0 shadow-sm rounded-3 mb-2 d-none"></div>
+      
+      <button type="button" id="complete-task-btn-${task.id}" 
+              class="btn btn-success btn-sm w-100 py-2 fw-semibold shadow-sm complete-picking-btn ${allChecked ? "" : "d-none"}" 
+              data-task-id="${task.id}" ${allChecked ? "" : "disabled"}>
+        <i class="bi bi-check2-circle me-1"></i> Complete Picking Task
+      </button>
+      `
+          : ""
+      }
+    </div>
+  `;
+}
+
+// =========================================================================
+// EVENT HANDLERS & COMPLETION
+// =========================================================================
+function wireUpExpandedTask(taskId) {
+  if (activeTab !== "pending") return;
+
+  const task = tasksCache.find((t) => t.id === taskId);
+  if (!task) return;
+
+  const checkboxes = document.querySelectorAll(
+    `.line-item-verify-cb[data-task-id="${taskId}"]`,
+  );
+  const completeBtn = document.getElementById(`complete-task-btn-${taskId}`);
+
+  checkboxes.forEach((cb) => {
+    cb.addEventListener("change", (e) => {
+      const itemId = e.target.dataset.itemId;
+      if (!checkedItemsState[taskId]) checkedItemsState[taskId] = new Set();
+
+      if (e.target.checked) {
+        checkedItemsState[taskId].add(itemId);
+      } else {
+        checkedItemsState[taskId].delete(itemId);
+      }
+
+      const allChecked =
+        (task.items || []).length > 0 &&
+        task.items.every((item) => checkedItemsState[taskId].has(item.id));
+
+      if (completeBtn) {
+        if (allChecked) {
+          completeBtn.classList.remove("d-none");
+          completeBtn.disabled = false;
+        } else {
+          completeBtn.classList.add("d-none");
+          completeBtn.disabled = true;
+        }
+      }
     });
   });
 
-  try {
-    await Api.picking.completeTask(task.id, pickedItems);
-    refreshTasks();
-  } catch (err) {
-    alert(err.message);
-    btn.disabled = false;
-    btn.innerHTML = `<i class="bi bi-check2-circle"></i> Complete Picking`;
+  if (completeBtn) {
+    completeBtn.addEventListener("click", () => completeTask(task));
   }
 }
 
-function startPolling() {
-  stopPolling();
-  pollInterval = setInterval(() => {
-    if (activeTab === "pending") refreshTasks();
-  }, 15000);
+async function completeTask(task) {
+  const taskId = task.id;
+  const completeBtn = document.getElementById(`complete-task-btn-${taskId}`);
+  const errorEl = document.getElementById(`picking-error-${taskId}`);
+
+  if (errorEl) {
+    errorEl.classList.add("d-none");
+    errorEl.textContent = "";
+  }
+
+  completeBtn.disabled = true;
+  completeBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Completing...`;
+
+  const pickedItems = (task.items || []).map((item) => ({
+    picking_task_item_id: item.id,
+    picked_quantity: item.quantity_to_pick,
+  }));
+
+  try {
+    const result = await Api.picking.completeTask(taskId, pickedItems);
+    if (!result || result.success === false) {
+      throw new Error(result?.error || "Picking completion was rejected.");
+    }
+
+    delete checkedItemsState[taskId];
+    expandedTaskId = null;
+    await refreshTasks();
+  } catch (err) {
+    if (errorEl) {
+      errorEl.textContent = `Error: ${err.message}`;
+      errorEl.classList.remove("d-none");
+    }
+    completeBtn.disabled = false;
+    completeBtn.innerHTML = `<i class="bi bi-check2-circle me-1"></i> Complete Picking Task`;
+  }
 }
-function stopPolling() {
-  if (pollInterval) clearInterval(pollInterval);
-  pollInterval = null;
+
+// =========================================================================
+// HELPERS
+// =========================================================================
+function formatTimestamp(raw) {
+  if (!raw) return "—";
+  let isoString = String(raw).trim();
+  if (isoString.includes(" ") && !isoString.includes("T")) {
+    isoString = isoString.replace(" ", "T");
+  }
+  if (!/[zZ]|[+-]\d{2}:?\d{2}$/.test(isoString)) {
+    isoString += "Z";
+  }
+  const date = new Date(isoString);
+  if (isNaN(date.getTime())) return String(raw);
+
+  return date.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatDateOnly(raw) {
+  if (!raw) return "—";
+  const date = new Date(raw);
+  if (isNaN(date.getTime())) return String(raw);
+  return date.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" });
+}
+
+function escapeHtml(value) {
+  if (value === undefined || value === null) return "";
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
