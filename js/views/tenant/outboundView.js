@@ -126,7 +126,7 @@ export async function render(container, user) {
   setupEventListeners(container);
   clientsCache = await Api.clients.list().catch(() => []);
   await refreshInventoryCache();
-  await refreshQueue();
+  await refreshQueue(true);
   startPolling();
 }
 
@@ -171,7 +171,8 @@ function setupEventListeners(container) {
   });
 
   container.querySelector("#upload-all-btn").onclick = uploadAllFiles;
-  container.querySelector("#refresh-queue-btn").onclick = refreshQueue;
+  container.querySelector("#refresh-queue-btn").onclick = () =>
+    refreshQueue(true);
 
   container
     .querySelector("#start-manual-btn")
@@ -263,7 +264,7 @@ async function uploadAllFiles() {
     statusEl.className = "small mt-2 text-success fw-semibold";
     statusEl.innerHTML = `<i class="bi bi-check-circle-fill"></i> Uploaded! Document is processing — it will appear in the queue shortly.`;
 
-    refreshQueue();
+    refreshQueue(true);
   } catch (err) {
     statusEl.className = "small mt-2 text-danger fw-semibold";
     statusEl.textContent = `Error: ${err.message}`;
@@ -276,7 +277,7 @@ async function uploadAllFiles() {
 // =========================================================================
 function startPolling() {
   stopPolling();
-  pollInterval = setInterval(refreshQueue, 8000);
+  pollInterval = setInterval(() => refreshQueue(false), 8000);
 }
 
 function stopPolling() {
@@ -286,7 +287,7 @@ function stopPolling() {
   }
 }
 
-async function refreshQueue() {
+async function refreshQueue(forceRefresh = false) {
   const root = document.getElementById("outbound-root");
   if (!root) return;
   const listBody = root.querySelector("#list-body");
@@ -296,9 +297,9 @@ async function refreshQueue() {
     const res = await Api.outbound.listPending();
     const shipments = res.shipments || [];
 
-    // Stop visible flickering: only update DOM if response hash actually changed
+    // Stop visible flickering: only update DOM if response hash actually changed, unless forced
     const currentHash = JSON.stringify(shipments);
-    if (currentHash === lastQueueHash) return;
+    if (!forceRefresh && currentHash === lastQueueHash) return;
     lastQueueHash = currentHash;
 
     if (shipments.length === 0) {
@@ -317,11 +318,11 @@ async function refreshQueue() {
 }
 
 function renderQueueRow(s) {
-  const shortId = s.id.substring(0, 8) + "...";
+  const shortId = s.id ? s.id.substring(0, 8) + "..." : "N/A";
   const isActive = s.id === activeShipmentId;
   const createdAt = formatTimestamp(s.created_at);
 
-  if (s.status === "pending_verification") {
+  if (s.status === "pending_verification" || s.status === "pending") {
     return `
       <tr class="${isActive ? "table-primary fw-medium" : ""}">
         <td class="ps-3"><code class="small text-primary">${shortId}</code></td>
@@ -341,7 +342,7 @@ function renderQueueRow(s) {
       <td>
         <span class="badge bg-warning text-warning-dominant px-2 py-1 border border-warning-subtle rounded-pill d-inline-flex align-items-center gap-1">
           <span class="spinner-border spinner-border-sm" style="width:0.65rem;height:0.65rem;border-width:1.5px;"></span>
-          Processing
+          ${escapeHtml(s.status || "Processing")}
         </span>
       </td>
       <td class="text-muted small">${createdAt}</td>
@@ -358,7 +359,7 @@ async function openStagedShipment(shipmentId) {
     ]);
     activeShipmentId = shipmentId;
     renderWorkspace(root, res.staging || { header: {}, lineItems: [] });
-    refreshQueue();
+    refreshQueue(true);
   } catch (err) {
     alert(err.message);
   }
@@ -837,7 +838,7 @@ async function runCommit(workspace) {
       .querySelector("#workspace").innerHTML = `
       <div class="alert alert-success"><i class="bi bi-check-circle me-2"></i>Outbound order committed. Picking task generated — see Picking Tasks.</div>`;
     activeShipmentId = null;
-    refreshQueue();
+    refreshQueue(true);
   } catch (err) {
     errorsEl.innerHTML = `<div class="alert alert-danger small mb-0">${escapeHtml(err.message)}</div>`;
     commitBtn.disabled = false;
