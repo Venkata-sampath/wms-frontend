@@ -235,7 +235,7 @@ function buildMasterShellHTML(user) {
       <a class="nav-link" href="#" data-view="tenant-opening-stock"><i class="bi bi-file-earmark-excel"></i> <span>Opening Stock</span></a>
       <a class="nav-link" href="#" data-view="tenant-putaway"><i class="bi bi-arrow-down-left-square"></i> <span>Putaway Tasks</span></a>
       <a class="nav-link" href="#" data-view="tenant-picking"><i class="bi bi-arrow-up-right-square"></i> <span>Picking Tasks</span></a>
-      <a class="nav-link" href="#" data-view="tenant-transactions"><i class="bi bi-journal-text"></i> <span>Audit Ledger</span></a>
+      <a class="nav-link" href="#" data-view="tenant-transactions"><i class="bi bi-journal-text"></i> <span>Transactions</span></a>
       <a class="nav-link" href="#" data-view="tenant-locations"><i class="bi bi-grid-3x3-gap"></i> <span>Locations Blueprint</span></a>
     `;
 
