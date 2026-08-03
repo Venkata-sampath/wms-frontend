@@ -94,6 +94,60 @@ export const Api = {
     },
   },
 
+  // --- BILLING MODULE SERVICE INTERFACE ---
+  billing: {
+    async list(filters = {}) {
+      const params = new URLSearchParams();
+      if (filters.search) params.set("search", filters.search);
+      if (filters.client_id) params.set("client_id", filters.client_id);
+      if (filters.status) params.set("status", filters.status);
+      const qs = params.toString();
+      const res = await sendRequest("GET", `/api/billing${qs ? `?${qs}` : ""}`);
+      return res.bills || [];
+    },
+    async getDetails(billingId) {
+      return sendRequest(
+        "GET",
+        `/api/billing/${encodeURIComponent(billingId)}`,
+      );
+    },
+    async create(payload) {
+      return sendRequest("POST", "/api/billing", payload);
+    },
+    async update(billingId, payload) {
+      return sendRequest(
+        "PUT",
+        `/api/billing/${encodeURIComponent(billingId)}`,
+        payload,
+      );
+    },
+    async remove(billingId) {
+      return sendRequest(
+        "DELETE",
+        `/api/billing/${encodeURIComponent(billingId)}`,
+      );
+    },
+    async markPaid(billingId) {
+      return sendRequest(
+        "POST",
+        `/api/billing/${encodeURIComponent(billingId)}/mark-paid`,
+      );
+    },
+    async uploadAttachment(billingId, formData) {
+      return sendRequest(
+        "POST",
+        `/api/billing/${encodeURIComponent(billingId)}/attachments`,
+        formData,
+      );
+    },
+    async removeAttachment(attachmentId) {
+      return sendRequest(
+        "DELETE",
+        `/api/billing/attachments/${encodeURIComponent(attachmentId)}`,
+      );
+    },
+  },
+
   // --- STOCK OWNER SERVICE INTERFACE ---
   stockOwners: {
     async list(clientId = null) {
@@ -123,11 +177,19 @@ export const Api = {
     async getWarehouses() {
       return sendRequest("GET", "/api/superadmin/warehouses");
     },
-    async createWarehouse(company_name, admin_username, admin_password) {
+    async createWarehouse(
+      company_name,
+      admin_username,
+      admin_password,
+      gstin = null,
+      address = null,
+    ) {
       return sendRequest("POST", "/api/superadmin/warehouses", {
         company_name,
         admin_username,
         admin_password,
+        gstin,
+        address,
       });
     },
     async toggleWarehouseStatus(warehouseId, currentStatus) {

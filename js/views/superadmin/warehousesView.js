@@ -110,7 +110,10 @@ export async function render(container, user) {
 
           return `
           <tr data-wh-id="${wh.id}">
-            <td class="ps-4 fw-bold text-dark">${escapeHtml(wh.company_name)}</td>
+            <td class="ps-4">
+              <div class="fw-bold text-dark">${escapeHtml(wh.company_name)}</div>
+              ${wh.gstin ? `<div class="text-muted extra-small font-monospace" style="font-size:0.7rem;">${escapeHtml(wh.gstin)}</div>` : ""}
+            </td>
             <td><code>${wh.id}</code></td>
             <td><i class="bi bi-calendar3 me-2 text-muted"></i>${localTime}</td>
             <td class="text-center">

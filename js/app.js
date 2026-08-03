@@ -57,6 +57,7 @@ function getValidViewKeysForRole(role) {
   ];
   if (role === "admin") {
     keys.push("tenant-users");
+    keys.push("tenant-billing");
     keys.push("tenant-clients");
     keys.push("tenant-stock-owners");
   }
@@ -197,6 +198,9 @@ async function loadView(viewKey, containerId) {
     case "tenant-users":
       modulePath = "./views/tenant/usersView.js";
       break;
+    case "tenant-billing":
+      modulePath = "./views/tenant/billingView.js";
+      break;
     case "tenant-clients":
       modulePath = "./views/tenant/clientsView.js";
       break;
@@ -242,6 +246,7 @@ function buildMasterShellHTML(user) {
     if (user.role === "admin") {
       sidebarNavHTML += `
         <a class="nav-link" href="#" data-view="tenant-users"><i class="bi bi-people"></i> <span>Team Directory</span></a>
+        <a class="nav-link" href="#" data-view="tenant-billing"><i class="bi bi-receipt-cutoff"></i> <span>Billing</span></a>
         <a class="nav-link" href="#" data-view="tenant-clients"><i class="bi bi-briefcase"></i> <span>Client Master</span></a>
         <a class="nav-link" href="#" data-view="tenant-stock-owners"><i class="bi bi-person-badge"></i> <span>Stock Owners</span></a>
       `;

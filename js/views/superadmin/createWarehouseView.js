@@ -53,7 +53,46 @@ export async function render(container, user) {
         <div class="card shadow-sm border-0 rounded-3 mb-4">
           <div class="card-header bg-white py-3 border-bottom">
             <h5 class="fw-bold text-secondary mb-0 d-flex align-items-center">
-              <span class="badge bg-primary me-2">2</span> Tenant Root Administrator Account
+              <span class="badge bg-primary me-2">2</span> Billing Profile (Optional)
+            </h5>
+          </div>
+          <div class="card-body p-4">
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <label for="warehouse-gstin-input" class="form-label small fw-semibold text-muted">GSTIN</label>
+                <div class="input-group">
+                  <span class="input-group-text bg-light text-muted"><i class="bi bi-receipt"></i></span>
+                  <input
+                    type="text"
+                    id="warehouse-gstin-input"
+                    class="form-control bg-light text-uppercase"
+                    placeholder="15-digit GST identification number"
+                  >
+                </div>
+              </div>
+              <div class="col-md-6 mb-3">
+                <label for="warehouse-address-input" class="form-label small fw-semibold text-muted">Warehouse Address</label>
+                <div class="input-group">
+                  <span class="input-group-text bg-light text-muted"><i class="bi bi-geo-alt"></i></span>
+                  <input
+                    type="text"
+                    id="warehouse-address-input"
+                    class="form-control bg-light"
+                    placeholder="e.g., Plot 12, Industrial Area, Hyderabad"
+                  >
+                </div>
+              </div>
+            </div>
+            <div class="form-text text-muted extra-small" style="font-size:0.75rem;">
+              Printed on invoices this tenant generates through the Billing module. Can be left blank and added later.
+            </div>
+          </div>
+        </div>
+
+        <div class="card shadow-sm border-0 rounded-3 mb-4">
+          <div class="card-header bg-white py-3 border-bottom">
+            <h5 class="fw-bold text-secondary mb-0 d-flex align-items-center">
+              <span class="badge bg-primary me-2">3</span> Tenant Root Administrator Account
             </h5>
           </div>
           <div class="card-body p-4">
@@ -128,6 +167,8 @@ export async function render(container, user) {
   const alertAnchor = document.getElementById("create-warehouse-alert-anchor");
 
   const companyNameInput = document.getElementById("company-name-input");
+  const gstinInput = document.getElementById("warehouse-gstin-input");
+  const addressInput = document.getElementById("warehouse-address-input");
   const usernameInput = document.getElementById("admin-username-input");
   const passwordInput = document.getElementById("admin-password-input");
   const confirmPasswordInput = document.getElementById(
@@ -147,6 +188,8 @@ export async function render(container, user) {
 
     // Value structural normalization
     const companyName = companyNameInput.value.trim();
+    const gstin = gstinInput.value.trim().toUpperCase();
+    const address = addressInput.value.trim();
     const username = usernameInput.value.trim();
     const password = passwordInput.value;
     const confirmPassword = confirmPasswordInput.value;
@@ -188,7 +231,13 @@ export async function render(container, user) {
 
     try {
       // Stream payload execution directly to Cloudflare backend workers via api gateway
-      await Api.superadmin.createWarehouse(companyName, username, password);
+      await Api.superadmin.createWarehouse(
+        companyName,
+        username,
+        password,
+        gstin || null,
+        address || null,
+      );
 
       // Render highly visible deployment success notifications
       renderAlert(
@@ -229,6 +278,8 @@ export async function render(container, user) {
       `;
       // Soften inputs visual visibility while loading
       companyNameInput.disabled = true;
+      gstinInput.disabled = true;
+      addressInput.disabled = true;
       usernameInput.disabled = true;
       passwordInput.disabled = true;
       confirmPasswordInput.disabled = true;
@@ -236,6 +287,8 @@ export async function render(container, user) {
       submitBtn.disabled = false;
       submitBtn.innerHTML = `<i class="bi bi-cloud-arrow-up-fill me-2"></i> Deploy Tenant Cluster`;
       companyNameInput.disabled = false;
+      gstinInput.disabled = false;
+      addressInput.disabled = false;
       usernameInput.disabled = false;
       passwordInput.disabled = false;
       confirmPasswordInput.disabled = false;
