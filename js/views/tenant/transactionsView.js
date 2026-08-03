@@ -243,13 +243,17 @@ export async function render(container, user) {
 
     try {
       const detail = await Api.transactions.getDetails(transactionId);
-      if (detail.transaction.transaction_type === "opening_stock") {
+      const type = detail.transaction?.transaction_type;
+
+      if (type === "opening_stock") {
         bodyEl.innerHTML = renderOpeningStockDetail(detail);
+      } else if (type === "outbound") {
+        bodyEl.innerHTML = renderOutboundDetail(detail);
       } else {
         bodyEl.innerHTML = renderInboundDetail(detail);
       }
     } catch (err) {
-      bodyEl.innerHTML = `<div class="text-danger p-3">${err.message}</div>`;
+      bodyEl.innerHTML = `<div class="text-danger p-3">${escapeHtml(err.message)}</div>`;
     }
   }
 
@@ -533,6 +537,146 @@ export async function render(container, user) {
       businessPartiesSection +
       lineItemsSection +
       discrepanciesSection
+    );
+  }
+
+  function renderOutboundDetail(detail) {
+    const txn = detail.transaction || {};
+    const header = detail.shipment_header || {};
+    const items = detail.outbound_shipment_line_items || [];
+    const tasks = detail.picking_tasks || [];
+
+    const createdStr = formatTimestamp(txn.created_at);
+    const completedStr = formatTimestamp(txn.completed_at);
+
+    // Section 1 — Transaction Information
+    const transactionInfoSection = `
+      <div class="card border-0 shadow-sm mb-3 rounded-3 overflow-hidden">
+        <div class="card-header bg-white fw-bold text-uppercase small text-muted py-2.5">
+          Transaction Information
+        </div>
+        <div class="card-body p-3">
+          <div class="row g-2">
+            ${infoField("Transaction ID", `<code class="font-monospace text-primary text-break" style="font-size:0.75rem;">${txt(txn.id)}</code>`, "col-12 col-sm-6 col-md-4")}
+            ${infoField("Transaction Type", typeBadge(txn.transaction_type))}
+            ${infoField("Status", statusBadge(txn.status))}
+            ${infoField("Warehouse ID", `<span class="badge bg-light text-secondary border font-monospace">${txt(txn.warehouse_id)}</span>`)}
+            ${infoField("Created At", createdStr)}
+            ${infoField("Completed At", completedStr)}
+            ${infoField("Created By", txt(header.created_by))}
+            ${infoField("Verified By", txt(header.verified_by))}
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Section 2 — Outbound Shipment Details
+    const shipmentInfoSection = `
+      <div class="card border-0 shadow-sm mb-3 rounded-3 overflow-hidden">
+        <div class="card-header bg-white fw-bold text-uppercase small text-muted py-2.5">
+          Outbound Shipment Details
+        </div>
+        <div class="card-body p-3">
+          <div class="row g-2">
+            ${infoField("Shipment Detail ID", `<code class="font-monospace text-muted text-break" style="font-size:0.75rem;">${txt(header.id)}</code>`, "col-12 col-sm-6 col-md-4")}
+            ${infoField("Client Name", `<span class="fw-semibold text-dark">${txt(header.client_name || txn.client_name)}</span>`)}
+            ${infoField("Client Code", `<span class="badge bg-light text-dark border font-monospace">${txt(header.client_code || txn.client_code)}</span>`)}
+            ${infoField("E-Way Bill Number", txt(header.eway_bill_number))}
+            ${infoField("Transporter Name", txt(header.transporter_name))}
+            ${infoField("Vehicle Number", txt(header.vehicle_number))}
+            ${infoField("Shipment Status", statusBadge(header.status))}
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Section 3 — Outbound Line Items
+    const lineItemRows = items
+      .map(
+        (item) => `
+        <tr>
+          <td><code class="small fw-bold text-primary font-monospace">${txt(item.item_code)}</code></td>
+          <td><div class="text-truncate text-secondary" style="max-width:240px;" title="${escapeHtml(item.item_description)}">${txt(item.item_description)}</div></td>
+          <td><span class="badge bg-light text-dark border font-monospace">${txt(item.stock_owner_code || item.stock_owner_name || item.stock_owner_id)}</span></td>
+          <td class="text-end fw-bold text-dark">${fmt(item.requested_quantity)}</td>
+          <td><small class="text-uppercase font-monospace text-muted fw-bold">${txt(item.uom)}</small></td>
+          <td class="text-muted small">${formatTimestamp(item.created_at)}</td>
+        </tr>
+      `,
+      )
+      .join("");
+
+    const lineItemsSection = `
+      <div class="mb-3">
+        <small class="text-uppercase fw-bold text-muted mb-1.5 d-block" style="font-size:0.7rem; letter-spacing:0.3px;">Outbound Line Items (${items.length})</small>
+        <div class="card border-0 shadow-sm rounded-3 overflow-hidden">
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0" style="font-size:0.8rem;">
+              <thead class="table-light small text-uppercase" style="font-size:0.68rem;">
+                <tr>
+                  <th>Item Code</th>
+                  <th>Description</th>
+                  <th>Stock Owner</th>
+                  <th class="text-end">Requested Qty</th>
+                  <th>UOM</th>
+                  <th>Created At</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${lineItemRows || `<tr><td colspan="6" class="text-center text-muted py-3 small">No outbound line items recorded.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Section 4 — Picking Task Information
+    const pickingRows = tasks
+      .map(
+        (task) => `
+        <tr>
+          <td><code class="small text-muted font-monospace">${txt(task.id)}</code></td>
+          <td>${statusBadge(task.status)}</td>
+          <td>${txt(task.created_by)}</td>
+          <td>${txt(task.completed_by)}</td>
+          <td class="small text-muted">${formatTimestamp(task.created_at)}</td>
+          <td class="small text-muted">${formatTimestamp(task.completed_at)}</td>
+        </tr>
+      `,
+      )
+      .join("");
+
+    const pickingTaskSection = `
+      <div class="mb-1">
+        <small class="text-uppercase fw-bold text-muted mb-1.5 d-block" style="font-size:0.7rem; letter-spacing:0.3px;">Picking Tasks (${tasks.length})</small>
+        <div class="card border-0 shadow-sm rounded-3 overflow-hidden">
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0" style="font-size:0.8rem;">
+              <thead class="table-light small text-uppercase" style="font-size:0.68rem;">
+                <tr>
+                  <th>Task ID</th>
+                  <th>Status</th>
+                  <th>Created By</th>
+                  <th>Completed By</th>
+                  <th>Created At</th>
+                  <th>Completed At</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${pickingRows || `<tr><td colspan="6" class="text-center text-muted py-3 small">No picking tasks linked to this outbound shipment.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    `;
+
+    return (
+      transactionInfoSection +
+      shipmentInfoSection +
+      lineItemsSection +
+      pickingTaskSection
     );
   }
 
