@@ -575,10 +575,11 @@ async function renderWorkspace(root, staging) {
       <div class="table-responsive mb-3" style="overflow-x: visible;">
         <table class="table table-sm align-middle">
           <thead class="table-light"><tr>
-            <th style="width:25%">Item Code</th>
-            <th style="width:30%">Description</th>
-            <th style="width:25%">Stock Owner</th>
-            <th style="width:10%">UOM</th>
+            <th style="width:6%">No.</th>
+            <th style="width:20%">Item Code</th>
+            <th style="width:26%">Description</th>
+            <th style="width:20%">Stock Owner</th>
+            <th style="width:8%">UOM</th>
             <th style="width:10%">Qty</th>
             <th></th>
           </tr></thead>
@@ -643,7 +644,7 @@ function renderLineItemsBody(workspace) {
   addLineBtn.disabled = !isClientSelected;
 
   body.innerHTML = lineItems
-    .map((item) => {
+    .map((item, idx) => {
       const isInvalid = !item.resolved;
 
       const stockOwnerOptionsHtml =
@@ -658,6 +659,7 @@ function renderLineItemsBody(workspace) {
           : `<option value="" disabled selected>Select Client First</option>`;
 
       return `<tr data-uid="${item.uid}">
+      <td class="text-center text-muted small">${idx + 1}</td>
       <td>
         <input type="text" class="form-control form-control-sm ${isInvalid ? "is-invalid" : ""}" data-field="item_code" value="${item.item_code}" ${!isClientSelected ? "disabled" : ""} placeholder="Search code...">
       </td>

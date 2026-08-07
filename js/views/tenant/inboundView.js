@@ -457,7 +457,10 @@ async function renderVerification(shipmentId) {
           3. Physical Line Item Manifest & Discrepancy Capture
         </div>
         
-        <div class="d-flex justify-content-end mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <label class="small fw-semibold text-muted mb-0">
+            <input type="checkbox" id="item-select-all" class="form-check-input me-2 verify-checkbox"> Select all
+          </label>
           <button type="button" id="add-line-item-btn" class="btn btn-sm btn-primary shadow-sm px-3">
             <i class="bi bi-plus-lg"></i> Add Line Item Form Entry
           </button>
@@ -493,7 +496,7 @@ async function renderVerification(shipmentId) {
                   <th style="width: 140px;">Batch Number</th>
                   <th style="width: 150px;">Manufacturing Date</th>
                   <th style="width: 150px;">Expiry Date</th>
-                  <th style="width: 80px;" class="text-center">Verified</th>
+                  <th style="width: 100px;" class="text-center">Verified</th>
                   <th style="width: 70px;" class="text-center pe-2">Actions</th>
                 </tr>
               </thead>
@@ -788,8 +791,11 @@ function renderLineItems(items) {
     btn.onclick = () => {
       btn.closest("tr").remove();
       renumberRows();
+      syncItemSelectAllCheckbox();
     };
   });
+
+  syncItemSelectAllCheckbox();
 }
 
 // =========================================================================
@@ -849,6 +855,28 @@ function getLineItemRowHtml(item, idx) {
   `;
 }
 
+function syncItemSelectAllCheckbox() {
+  const selectAllCb = document.getElementById("item-select-all");
+  const itemCbs = document.querySelectorAll(".item-verify-checkbox");
+  if (!selectAllCb) return;
+
+  selectAllCb.checked =
+    itemCbs.length > 0 && Array.from(itemCbs).every((cb) => cb.checked);
+
+  selectAllCb.onchange = () => {
+    itemCbs.forEach((cb) => {
+      cb.checked = selectAllCb.checked;
+    });
+  };
+
+  itemCbs.forEach((cb) => {
+    cb.onchange = () => {
+      selectAllCb.checked =
+        itemCbs.length > 0 && Array.from(itemCbs).every((box) => box.checked);
+    };
+  });
+}
+
 function renumberRows() {
   const rows = document.querySelectorAll("#v-body .item-row-data");
   rows.forEach((row, i) => {
@@ -906,6 +934,7 @@ function addLineItemRow() {
   );
 
   tbody.appendChild(tr);
+  syncItemSelectAllCheckbox();
 
   tr.querySelector(".remove-line-item").onclick = () => {
     tr.remove();

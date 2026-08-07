@@ -260,11 +260,12 @@ function renderTaskDetail(task) {
     task.items.every((item) => taskCheckedSet.has(item.id));
 
   const rowsHtml = (task.items || [])
-    .map((item) => {
+    .map((item, idx) => {
       const isChecked = taskCheckedSet.has(item.id);
       return `
       <tr data-item-id="${item.id}">
-        <td class="ps-1"><code class="small fw-bold font-monospace text-primary">${escapeHtml(item.item_code)}</code></td>
+        <td class="ps-1 text-muted small">${idx + 1}</td>
+        <td><code class="small fw-bold font-monospace text-primary">${escapeHtml(item.item_code)}</code></td>
         <td><div class="text-secondary text-truncate" style="max-width:200px;" title="${escapeHtml(item.item_description || "")}">${escapeHtml(item.item_description || "—")}</div></td>
         <td><span class="badge bg-light text-dark border font-monospace">${escapeHtml(item.location_id)}</span></td>
         <td class="small font-monospace text-dark">${escapeHtml(item.batch_number || "—")}</td>
@@ -291,7 +292,8 @@ function renderTaskDetail(task) {
         <table class="table table-sm table-hover align-middle mb-0" style="font-size:0.85rem;">
           <thead class="table-light small text-uppercase" style="font-size:0.7rem;">
             <tr>
-              <th class="ps-1" style="min-width:110px;">Item Code</th>
+              <th class="ps-1" style="width:50px;">No.</th>
+              <th style="min-width:110px;">Item Code</th>
               <th style="min-width:160px;">Item Description</th>
               <th style="width:110px;">Location</th>
               <th style="width:110px;">Batch Number</th>
@@ -312,6 +314,11 @@ function renderTaskDetail(task) {
       ${
         activeTab === "pending"
           ? `
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <label class="small fw-semibold text-muted mb-0">
+          <input type="checkbox" class="form-check-input me-2 verify-checkbox select-all-picking-cb" data-task-id="${task.id}"> Select all
+        </label>
+      </div>
       <div id="picking-error-${task.id}" class="alert alert-danger py-2 px-3 small border-0 shadow-sm rounded-3 mb-2 d-none"></div>
       
       <button type="button" id="complete-task-btn-${task.id}" 
@@ -338,7 +345,21 @@ function wireUpExpandedTask(taskId) {
   const checkboxes = document.querySelectorAll(
     `.line-item-verify-cb[data-task-id="${taskId}"]`,
   );
+  const selectAllCb = document.querySelector(
+    `.select-all-picking-cb[data-task-id="${taskId}"]`,
+  );
   const completeBtn = document.getElementById(`complete-task-btn-${taskId}`);
+
+  if (selectAllCb) {
+    selectAllCb.checked =
+      checkboxes.length > 0 && Array.from(checkboxes).every((cb) => cb.checked);
+    selectAllCb.addEventListener("change", () => {
+      checkboxes.forEach((cb) => {
+        cb.checked = selectAllCb.checked;
+        cb.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    });
+  }
 
   checkboxes.forEach((cb) => {
     cb.addEventListener("change", (e) => {
@@ -354,6 +375,12 @@ function wireUpExpandedTask(taskId) {
       const allChecked =
         (task.items || []).length > 0 &&
         task.items.every((item) => checkedItemsState[taskId].has(item.id));
+
+      if (selectAllCb) {
+        selectAllCb.checked =
+          checkboxes.length > 0 &&
+          Array.from(checkboxes).every((cb) => cb.checked);
+      }
 
       if (completeBtn) {
         if (allChecked) {
