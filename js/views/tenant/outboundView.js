@@ -7,9 +7,9 @@ let pollInterval = null;
 let activeShipmentId = null;
 let clientsCache = [];
 let inventoryCache = [];
-let stockOwnersCache = []; // Stock owners for current selected client
+let stockOwnersCache = [];
 let lineItems = [];
-let lastQueueHash = ""; // Prevents DOM re-renders during polling if data hasn't changed
+let lastQueueHash = "";
 let currentUploadFiles = [];
 let uploadObjectUrlsMap = {};
 
@@ -18,15 +18,23 @@ function uid() {
 }
 
 // =========================================================================
-// ENTRY POINT
+// UNMOUNT / CLEANUP HOOK
 // =========================================================================
-export async function render(container, user) {
+export function dispose() {
   stopPolling();
+  Object.values(uploadObjectUrlsMap).forEach((url) => URL.revokeObjectURL(url));
   activeShipmentId = null;
   lineItems = [];
   lastQueueHash = "";
   currentUploadFiles = [];
   uploadObjectUrlsMap = {};
+}
+
+// =========================================================================
+// ENTRY POINT
+// =========================================================================
+export async function render(container, user) {
+  dispose();
 
   container.innerHTML = `
     <div class="container-fluid p-0 p-sm-4 animate-fade-in" id="outbound-root">
@@ -86,7 +94,7 @@ export async function render(container, user) {
                     <th class="pe-3 text-end">Actions</th>
                   </tr>
                 </thead>
-                <tbody id="list-body">
+                <tbody id="list-body-outbound">
                   <tr><td colspan="4" class="text-center text-muted py-4">Loading queue...</td></tr>
                 </tbody>
               </table>
@@ -130,9 +138,6 @@ export async function render(container, user) {
   startPolling();
 }
 
-// =========================================================================
-// EVENT LISTENERS & UPLOAD LOGIC
-// =========================================================================
 function setupEventListeners(container) {
   container.querySelectorAll("#outbound-tabs .nav-link").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -290,14 +295,13 @@ function stopPolling() {
 async function refreshQueue(forceRefresh = false) {
   const root = document.getElementById("outbound-root");
   if (!root) return;
-  const listBody = root.querySelector("#list-body");
+  const listBody = root.querySelector("#list-body-outbound");
   if (!listBody) return;
 
   try {
     const res = await Api.outbound.listPending();
     const shipments = res.shipments || [];
 
-    // Stop visible flickering: only update DOM if response hash actually changed, unless forced
     const currentHash = JSON.stringify(shipments);
     if (!forceRefresh && currentHash === lastQueueHash) return;
     lastQueueHash = currentHash;
@@ -374,9 +378,6 @@ async function refreshInventoryCache() {
   }
 }
 
-// =========================================================================
-// AUTO-VALIDATION ENGINE
-// =========================================================================
 function runAutoValidationPass(selectedClientId) {
   if (!selectedClientId) return;
 
@@ -420,9 +421,6 @@ function runAutoValidationPass(selectedClientId) {
   });
 }
 
-// =========================================================================
-// AUTOCOMPLETE ENGINE
-// =========================================================================
 function createAutocomplete(inputEl, fieldType, item, workspace) {
   let dropdownEl = null;
 
@@ -493,7 +491,6 @@ function createAutocomplete(inputEl, fieldType, item, workspace) {
     item.item_code = rec.item_code;
     item.item_description = rec.item_description || "";
     item.uom = rec.uom;
-    // Autocomplete updating Stock Owner selection automatically
     item.stock_owner_id = rec.stock_owner_id;
     item.resolved = true;
 
@@ -526,9 +523,6 @@ function createAutocomplete(inputEl, fieldType, item, workspace) {
   });
 }
 
-// =========================================================================
-// WORKSPACE ENGINE
-// =========================================================================
 async function renderWorkspace(root, staging) {
   lineItems = (staging.lineItems || []).map((item) => ({
     uid: uid(),
@@ -667,7 +661,6 @@ function renderLineItemsBody(workspace) {
         <input type="text" class="form-control form-control-sm" data-field="item_description" value="${item.item_description}" ${!isClientSelected ? "disabled" : ""} placeholder="Search description...">
       </td>
       <td>
-        <!-- Editable Dropdown maintaining AI, Autocomplete, and Manual Overrides -->
         <select class="form-select form-select-sm stock-owner-select" data-field="stock_owner_id" ${!isClientSelected ? "disabled" : ""}>
           ${stockOwnerOptionsHtml}
         </select>
@@ -699,7 +692,6 @@ function renderLineItemsBody(workspace) {
       createAutocomplete(descInput, "item_description", item, workspace);
     }
 
-    // Manual Override handling
     ownerSelect.addEventListener("change", (e) => {
       item.stock_owner_id = e.target.value;
       if (item.item_code) {
@@ -726,9 +718,6 @@ function renderLineItemsBody(workspace) {
   });
 }
 
-// =========================================================================
-// VERIFY & COMMIT
-// =========================================================================
 async function runVerify(workspace) {
   const errorsEl = workspace.querySelector("#verify-errors");
   const accordionEl = workspace.querySelector("#allocation-accordion");
@@ -848,9 +837,6 @@ async function runCommit(workspace) {
   }
 }
 
-// =========================================================================
-// HELPERS
-// =========================================================================
 function formatTimestamp(raw) {
   if (!raw) return "—";
   let isoString = String(raw).trim();

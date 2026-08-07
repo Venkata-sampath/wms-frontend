@@ -2,8 +2,6 @@ import { Api } from "../../api.js";
 
 // =========================================================================
 // MODULE STATE
-// Kept at module scope so it survives re-renders of the same view instance,
-// but is reset cleanly every time render() is called fresh.
 // =========================================================================
 let pollInterval = null;
 let currentFiles = [];
@@ -22,23 +20,27 @@ const HEADER_KEYS = [
 ];
 
 const PARTY_ROLES = ["seller", "bill_to", "ship_to"];
-
 const ITEM_CATEGORIES = ["frozen", "chiller", "ambient"];
+
+// =========================================================================
+// UNMOUNT / CLEANUP HOOK (Called by app.js / router on view switch)
+// =========================================================================
+export function dispose() {
+  stopPolling();
+  Object.values(objectUrlsMap).forEach((url) => URL.revokeObjectURL(url));
+  currentFiles = [];
+  activeShipmentId = null;
+  objectUrlsMap = {};
+}
 
 // =========================================================================
 // ENTRY POINT
 // =========================================================================
 export async function render(container, user) {
-  // Defensive cleanup in case this module instance is being re-rendered
-  // (e.g. user navigates away and back) so we never stack intervals.
-  stopPolling();
-  currentFiles = [];
-  activeShipmentId = null;
-  objectUrlsMap = {};
+  dispose();
 
   container.innerHTML = `
     <style>
-      /* Verification Checkbox Styles: Green theme with prominent border */
       .verify-checkbox {
         border: 2px solid #198754 !important;
         width: 1.25em;
@@ -110,7 +112,7 @@ export async function render(container, user) {
                   <th class="pe-3 text-end">Actions</th>
                 </tr>
               </thead>
-              <tbody id="list-body">
+              <tbody id="list-body-inbound">
                 <tr><td colspan="5" class="text-center text-muted py-4">Loading queue...</td></tr>
               </tbody>
             </table>
@@ -278,8 +280,10 @@ async function uploadAll() {
 // PENDING / PROCESSING QUEUE LONG-POLLING RUNTIMES
 // =========================================================================
 async function refreshQueue() {
-  const listBody = document.getElementById("list-body");
-  if (!listBody) return; // view layout was torn down mid-flight
+  const root = document.getElementById("inbound-root");
+  if (!root) return; // View layout was unmounted
+  const listBody = root.querySelector("#list-body-inbound");
+  if (!listBody) return;
 
   try {
     const shipments = await Api.shipments.listPending();
@@ -337,7 +341,6 @@ function renderQueueRow(s) {
       </tr>`;
   }
 
-  // processing status runtime mapping (default state representation)
   return `
     <tr>
       <td class="ps-3"><code class="small text-muted">${shortId}</code></td>
@@ -382,7 +385,7 @@ function formatTimestamp(raw) {
 async function renderVerification(shipmentId) {
   const workspace = document.getElementById("workspace");
   activeShipmentId = shipmentId;
-  refreshQueue(); // highlights active row context immediately
+  refreshQueue();
 
   workspace.innerHTML = `
     <div class="card border-0 p-5 shadow-sm text-center rounded-0 rounded-sm-3">
@@ -420,7 +423,6 @@ async function renderVerification(shipmentId) {
           <span class="small text-muted"><i class="bi bi-shield-fill-check text-success"></i> Form Validation System Active</span>
         </div>
 
-        <!-- CLIENT & STOCK OWNER IDENTITY MATRIX BLOCK -->
         <div class="card bg-light border p-3 mb-4 shadow-sm">
           <div class="row g-3">
             <div class="col-12 col-md-6">
@@ -545,7 +547,6 @@ async function renderVerification(shipmentId) {
         clientDropdown.appendChild(opt);
       });
 
-      // Cascading selection listener
       clientDropdown.addEventListener("change", async (e) => {
         const selectedClientId = e.target.value;
         ownerDropdown.disabled = true;
@@ -599,7 +600,6 @@ async function renderVerification(shipmentId) {
     }
   });
 
-  // Instantly warn the user when they leave a required field empty
   workspace.addEventListener("focusout", (e) => {
     if (e.target.classList.contains("required-field")) {
       if (e.target.value.trim() === "") {
@@ -610,7 +610,6 @@ async function renderVerification(shipmentId) {
     }
   });
 
-  // Catch form submission handlers securely
   document
     .getElementById("verification-form")
     .addEventListener("submit", (e) => {
@@ -799,9 +798,6 @@ function renderLineItems(items) {
   syncItemSelectAllCheckbox();
 }
 
-// =========================================================================
-// LINE ITEM DYNAMIC ACTIONS & ROW BUILDERS
-// =========================================================================
 function getLineItemRowHtml(item, idx) {
   let finalItemCode = item.item_code;
   if (!finalItemCode || finalItemCode.toString().trim() === "") {
@@ -959,7 +955,6 @@ async function commitShipment(shipmentId, workspace) {
   const commitBtn = document.getElementById("commit-btn");
   const statusEl = document.getElementById("commit-status");
 
-  // Validate fields marked mandatory across header, parties, and items
   const missingFields = [];
   document.querySelectorAll(".required-field").forEach((el) => {
     el.classList.remove("is-invalid");
@@ -990,7 +985,6 @@ async function commitShipment(shipmentId, workspace) {
     return;
   }
 
-  // Validate manual verification checkboxes
   const invNumChecked = document.getElementById(
     "header_verify_invoice_number",
   )?.checked;
@@ -1127,9 +1121,6 @@ async function commitShipment(shipmentId, workspace) {
   }
 }
 
-// =========================================================================
-// UTIL CONTEXT SANITIZERS
-// =========================================================================
 function escapeAttr(value) {
   if (value === undefined || value === null) return "";
   return String(value)
@@ -1139,9 +1130,6 @@ function escapeAttr(value) {
     .replace(/>/g, "&gt;");
 }
 
-// =========================================================================
-// SYSTEM CODE GENERATOR
-// =========================================================================
 function generateItemCode(description) {
   if (!description || description.trim() === "") return "";
 

@@ -171,11 +171,25 @@ function renderTaskList(listEl) {
   }
 }
 
+function calculateTaskTotalCases(task) {
+  if (!task.items || task.items.length === 0) return 0;
+  let totalCases = 0;
+  task.items.forEach((item) => {
+    const qty = Number(item.quantity_to_pick || 0);
+    const conversion = Number(item.case_conversion_qty || 0);
+    if (conversion > 0 && qty > 0) {
+      totalCases += qty / conversion;
+    }
+  });
+  return totalCases;
+}
+
 function renderTaskCard(task) {
   const isExpanded = task.id === expandedTaskId;
   const createdAt = formatTimestamp(task.created_at);
   const totalItems = (task.items || []).length;
   const clientTitle = `${escapeHtml(task.client_name || "Unknown Client")} (${escapeHtml(task.client_code || "N/A")})`;
+  const totalCases = calculateTaskTotalCases(task);
 
   let subHeaderHtml = "";
   if (activeTab === "pending") {
@@ -235,6 +249,11 @@ function renderTaskCard(task) {
             <div class="d-flex align-items-center gap-2 flex-wrap">
               <span class="fw-bold fs-5 text-dark">${clientTitle}</span>
               <span class="badge bg-secondary text-white rounded px-2" style="font-size:0.75rem;">${totalItems} Item${totalItems === 1 ? "" : "s"}</span>
+              ${
+                totalCases > 0
+                  ? `<span class="badge bg-info-subtle text-info-emphasis border border-info-subtle rounded px-2" style="font-size:0.75rem;">Total Cases: ${totalCases.toFixed(2)}</span>`
+                  : ""
+              }
             </div>
             <div class="flex-shrink-0 ps-2">
               <i class="bi ${isExpanded ? "bi-chevron-up" : "bi-chevron-down"} fs-6 text-muted"></i>
@@ -316,7 +335,7 @@ function renderTaskDetail(task) {
           ? `
       <div class="d-flex justify-content-between align-items-center mb-2">
         <label class="small fw-semibold text-muted mb-0">
-          <input type="checkbox" class="form-check-input me-2 verify-checkbox select-all-picking-cb" data-task-id="${task.id}"> Select all
+          <input type="checkbox" class="form-check-input me-2 verify-checkbox select-all-picking-cb" data-task-id="${task.id}" ${allChecked ? "checked" : ""}> Select all
         </label>
       </div>
       <div id="picking-error-${task.id}" class="alert alert-danger py-2 px-3 small border-0 shadow-sm rounded-3 mb-2 d-none"></div>
@@ -350,21 +369,40 @@ function wireUpExpandedTask(taskId) {
   );
   const completeBtn = document.getElementById(`complete-task-btn-${taskId}`);
 
+  if (!checkedItemsState[taskId]) {
+    checkedItemsState[taskId] = new Set();
+  }
+
   if (selectAllCb) {
-    selectAllCb.checked =
-      checkboxes.length > 0 && Array.from(checkboxes).every((cb) => cb.checked);
-    selectAllCb.addEventListener("change", () => {
+    selectAllCb.addEventListener("change", (e) => {
+      const isChecked = e.target.checked;
+      if (isChecked) {
+        (task.items || []).forEach((item) =>
+          checkedItemsState[taskId].add(item.id),
+        );
+      } else {
+        checkedItemsState[taskId].clear();
+      }
+
       checkboxes.forEach((cb) => {
-        cb.checked = selectAllCb.checked;
-        cb.dispatchEvent(new Event("change", { bubbles: true }));
+        cb.checked = isChecked;
       });
+
+      if (completeBtn) {
+        if (isChecked && (task.items || []).length > 0) {
+          completeBtn.classList.remove("d-none");
+          completeBtn.disabled = false;
+        } else {
+          completeBtn.classList.add("d-none");
+          completeBtn.disabled = true;
+        }
+      }
     });
   }
 
   checkboxes.forEach((cb) => {
     cb.addEventListener("change", (e) => {
       const itemId = e.target.dataset.itemId;
-      if (!checkedItemsState[taskId]) checkedItemsState[taskId] = new Set();
 
       if (e.target.checked) {
         checkedItemsState[taskId].add(itemId);
@@ -377,9 +415,7 @@ function wireUpExpandedTask(taskId) {
         task.items.every((item) => checkedItemsState[taskId].has(item.id));
 
       if (selectAllCb) {
-        selectAllCb.checked =
-          checkboxes.length > 0 &&
-          Array.from(checkboxes).every((cb) => cb.checked);
+        selectAllCb.checked = allChecked;
       }
 
       if (completeBtn) {
