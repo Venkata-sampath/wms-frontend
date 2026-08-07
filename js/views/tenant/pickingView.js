@@ -272,6 +272,7 @@ function renderTaskDetail(task) {
         <td class="small text-muted">${formatDateOnly(item.expiry_date)}</td>
         <td class="fw-bold text-dark">${item.quantity_to_pick}</td>
         <td><small class="text-uppercase text-muted fw-bold">${escapeHtml(item.uom || "PCS")}</small></td>
+        <td class="small text-primary fw-semibold">${formatCaseSummary(item)}</td>
         <td class="text-center">
           ${
             activeTab === "pending"
@@ -298,6 +299,7 @@ function renderTaskDetail(task) {
               <th style="width:110px;">Expiry Date</th>
               <th style="width:80px;">Quantity</th>
               <th style="width:70px;">UOM</th>
+              <th style="width:120px;">Cases</th>
               <th style="width:100px;" class="text-center">Verification</th>
             </tr>
           </thead>
@@ -436,6 +438,16 @@ function formatDateOnly(raw) {
   const date = new Date(raw);
   if (isNaN(date.getTime())) return String(raw);
   return date.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" });
+}
+
+function formatCaseSummary(item) {
+  const qty = Number(item.quantity_to_pick || 0);
+  const conversion = Number(item.case_conversion_qty || 0);
+  if (!conversion || qty <= 0) {
+    return "—";
+  }
+  const cases = qty / conversion;
+  return `${cases.toFixed(2)} case${cases === 1 ? "" : "s"}`;
 }
 
 function escapeHtml(value) {

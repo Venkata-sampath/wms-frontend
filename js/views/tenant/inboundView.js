@@ -810,6 +810,7 @@ function getLineItemRowHtml(item, idx) {
     <td><input type="text" class="form-control form-control-sm text-center" id="item_hsn_${idx}" value="${escapeAttr(item.hsn_sac ?? "")}"></td>
     <td><input type="number" class="form-control form-control-sm text-center required-field" id="item_ordered_${idx}" value="${item.ordered_quantity ?? 0}" required></td>
     <td><input type="text" class="form-control form-control-sm text-center required-field" id="item_uom_${idx}" value="${escapeAttr(item.uom) || "PCS"}" required></td>
+    <td><input type="number" step="any" class="form-control form-control-sm text-center" id="item_case_conversion_${idx}" value="${item.case_conversion_qty ?? ""}" placeholder="Optional"></td>
     <td><input type="text" class="form-control form-control-sm text-end" id="item_rate_${idx}" value="${item.rate ?? 0}"></td>
     <td><input type="text" class="form-control form-control-sm text-end" id="item_gross_${idx}" value="${item.gross_amount ?? 0}"></td>
     <td><input type="text" class="form-control form-control-sm text-end" id="item_discount_${idx}" value="${item.discount_amount ?? 0}"></td>
@@ -885,6 +886,7 @@ function addLineItemRow() {
       discount_amount: 0,
       taxable_amount: 0,
       tax_rate_percent: "",
+      case_conversion_qty: "",
       cgst: 0,
       sgst: 0,
       igst: 0,
@@ -1025,6 +1027,9 @@ async function commitShipment(shipmentId, workspace) {
         uom: document.getElementById(`item_uom_${idx}`).value,
         discrepancy_uom: document.getElementById(`item_uom_${idx}`).value,
         discrepancy_notes: document.getElementById(`item_notes_${idx}`).value,
+        case_conversion_qty: document.getElementById(
+          `item_case_conversion_${idx}`,
+        ).value,
         category: document.getElementById(`item_category_${idx}`).value,
         batch_number: document.getElementById(`item_batch_${idx}`).value,
         expiry_date:

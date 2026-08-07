@@ -49,7 +49,7 @@ export async function render(container, user) {
       <!-- EXCEL UPLOAD PANEL -->
       <div class="card border-0 shadow-sm rounded-0 rounded-sm-3 p-4 mb-4">
         <h6 class="fw-bold mb-1 text-dark"><i class="bi bi-cloud-upload text-primary me-2"></i>2. Upload Opening Stock Excel File</h6>
-        <p class="text-muted small mb-3">Mandatory headers: <code>Item Code</code>, <code>Item Description</code>, <code>Quantity</code>, <code>UOM</code>, <code>Category</code>, <code>Location</code>, <code>Batch Number</code>, <code>Manufacturing Date</code>, <code>Expiry Date</code>.</p>
+        <p class="text-muted small mb-3">Mandatory headers: <code>Item Code</code>, <code>Item Description</code>, <code>Quantity</code>, <code>UOM</code>, <code>Category</code>, <code>Location</code>, <code>Batch Number</code>, <code>Manufacturing Date</code>, <code>Expiry Date</code>. Optional: <code>Case Conversion Qty</code>.</p>
 
         <div id="os-dropzone" class="border rounded-3 p-4 text-center mb-3 bg-light" style="border: 2px dashed #dee2e6 !important; cursor: pointer;">
           <p class="mb-2 text-muted"><i class="bi bi-file-earmark-spreadsheet text-success fs-1 d-block mb-1"></i>Drag & Drop Excel file or</p>
