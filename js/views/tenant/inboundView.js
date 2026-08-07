@@ -477,6 +477,7 @@ async function renderVerification(shipmentId) {
                   <th style="width: 110px;">HSN/SAC</th>
                   <th style="width: 90px;">Ordered*</th>
                   <th style="width: 90px;">UOM*</th>
+                  <th style="width: 100px;">Case Conv. Qty</th>
                   <th style="width: 100px;">Rate</th>
                   <th style="width: 100px;">Gross</th>
                   <th style="width: 100px;">Discount</th>
