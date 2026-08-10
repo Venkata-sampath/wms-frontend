@@ -138,7 +138,7 @@ async function renderList(container, currentUser) {
         <div class="card-header bg-white py-3 border-bottom">
           <div class="row g-2 align-items-center">
             <div class="col-12 col-md-5">
-              <input type="text" id="billing-search-input" class="form-control form-control-sm bg-light" placeholder="Search bill number or client...">
+              <input type="text" id="billing-search-input" class="form-control form-control-sm bg-light" placeholder="Search invoice number or client...">
             </div>
             <div class="col-6 col-md-4">
               <select id="billing-client-filter" class="form-select form-select-sm bg-light">
@@ -159,7 +159,7 @@ async function renderList(container, currentUser) {
             <table class="table table-hover align-middle mb-0 text-nowrap">
               <thead class="table-light text-secondary small text-uppercase" style="font-size: 0.75rem;">
                 <tr>
-                  <th class="ps-4 py-3">Bill Number</th>
+                  <th class="ps-4 py-3">Invoice Number</th>
                   <th class="py-3">Client</th>
                   <th class="py-3">Billing Period</th>
                   <th class="py-3">Invoice Date</th>
@@ -250,7 +250,7 @@ async function renderList(container, currentUser) {
         const tr = document.createElement("tr");
         tr.style.cursor = "pointer";
         tr.innerHTML = `
-          <td class="ps-4 fw-bold text-dark">${escapeHtml(bill.bill_number)}</td>
+          <td class="ps-4 fw-bold text-dark">${escapeHtml(bill.invoice_number)}</td>
           <td>${escapeHtml(bill.client_name)}</td>
           <td class="text-muted small">${escapeHtml(period)}</td>
           <td class="text-muted small">${escapeHtml(bill.invoice_date || "—")}</td>
@@ -412,8 +412,8 @@ async function renderCreate(container, currentUser) {
           `
           <div class="row g-3">
             <div class="col-md-4">
-              <label class="form-label small fw-semibold text-muted">Bill / Invoice Number *</label>
-              <input type="text" id="bill-number-input" class="form-control bg-light" placeholder="e.g. FCS/250/2026-27" required>
+              <label class="form-label small fw-semibold text-muted">Invoice Number *</label>
+              <input type="text" id="invoice-number-input" class="form-control bg-light" placeholder="e.g. FCS/250/2026-27" required>
             </div>
             <div class="col-md-4">
               <label class="form-label small fw-semibold text-muted">Invoice Date</label>
@@ -743,16 +743,16 @@ async function renderCreate(container, currentUser) {
     alertAnchor.innerHTML = "";
 
     const client_id = clientSelect.value;
-    const bill_number = document
-      .getElementById("bill-number-input")
+    const invoice_number = document
+      .getElementById("invoice-number-input")
       .value.trim();
     const invoice_date = document.getElementById("invoice-date-input").value;
 
-    if (!client_id || !bill_number || !invoice_date) {
+    if (!client_id || !invoice_number || !invoice_date) {
       renderAlert(
         alertAnchor,
         "warning",
-        "Client, Bill Number, and Invoice Date are mandatory.",
+        "Client, Invoice Number, and Invoice Date are mandatory.",
       );
       return;
     }
@@ -828,7 +828,7 @@ async function renderCreate(container, currentUser) {
 
     const payload = {
       client_id,
-      bill_number,
+      invoice_number,
       invoice_date,
       due_date: document.getElementById("due-date-input").value.trim() || null,
       billing_period_from:
@@ -947,7 +947,7 @@ async function renderDetails(
       <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3 mt-sm-0 mb-4 pb-2 px-3 px-sm-0 border-bottom">
         <div>
           <h3 class="fw-bold text-dark mb-1 fs-4 fs-sm-3">
-            <i class="bi bi-receipt-cutoff text-primary me-2"></i>${escapeHtml(bill.bill_number)}
+            <i class="bi bi-receipt-cutoff text-primary me-2"></i>${escapeHtml(bill.invoice_number)}
           </h3>
           <p class="text-muted small mb-0">
             ${
@@ -1084,7 +1084,7 @@ function renderReadOnlyBody(
       "Invoice Information",
       `
       <div class="row g-3 small">
-        <div class="col-md-4"><span class="text-muted d-block">Bill Number</span><span class="fw-semibold">${escapeHtml(bill.bill_number)}</span></div>
+        <div class="col-md-4"><span class="text-muted d-block">Invoice Number</span><span class="fw-semibold">${escapeHtml(bill.invoice_number)}</span></div>
         <div class="col-md-4"><span class="text-muted d-block">Invoice Date</span><span class="fw-semibold">${escapeHtml(bill.invoice_date || "—")}</span></div>
         <div class="col-md-4"><span class="text-muted d-block">Due Date / Terms</span><span class="fw-semibold">${escapeHtml(bill.due_date || "—")}</span></div>
         <div class="col-md-6"><span class="text-muted d-block">Reference Number</span><span class="fw-semibold">${escapeHtml(bill.reference_number || "—")}</span></div>
@@ -1370,12 +1370,12 @@ async function renderEditForm(
         `
         <div class="row g-3">
           <div class="col-md-4">
-            <label class="form-label small fw-semibold text-muted">Bill Number *</label>
-            <input type="text" id="edit-bill-number-input" class="form-control bg-light" value="${escapeHtml(bill.bill_number)}" required>
+            <label class="form-label small fw-semibold text-muted">Invoice Number *</label>
+            <input type="text" id="edit-invoice-number-input" class="form-control bg-light" value="${escapeHtml(bill.invoice_number)}" required>
           </div>
           <div class="col-md-4">
             <label class="form-label small fw-semibold text-muted">Invoice Date *</label>
-            <input type="date" id="edit-invoice-date-input" class="form-control bg-light" value="${bill.invoice_date || ""}" required>
+            <input type="date" id="edit-invoice-date-input" class="form-control bg-light" value="${bill.invoice_date || ""}" readonly required>
           </div>
           <div class="col-md-4">
             <label class="form-label small fw-semibold text-muted">Due Date / Terms</label>
@@ -1709,18 +1709,18 @@ async function renderEditForm(
       alertAnchor.innerHTML = "";
 
       const client_id = editClientSelect.value;
-      const bill_number = document
-        .getElementById("edit-bill-number-input")
+      const invoice_number = document
+        .getElementById("edit-invoice-number-input")
         .value.trim();
       const invoice_date = document.getElementById(
         "edit-invoice-date-input",
       ).value;
 
-      if (!client_id || !bill_number || !invoice_date) {
+      if (!client_id || !invoice_number || !invoice_date) {
         renderAlert(
           alertAnchor,
           "warning",
-          "Client, Bill Number, and Invoice Date are mandatory.",
+          "Client, Invoice Number, and Invoice Date are mandatory.",
         );
         return;
       }
@@ -1786,7 +1786,7 @@ async function renderEditForm(
 
       const payload = {
         client_id,
-        bill_number,
+        invoice_number,
         invoice_date,
         due_date:
           document.getElementById("edit-due-date-input").value.trim() || null,
@@ -2039,7 +2039,7 @@ async function generateInvoicePdf(currentUser, bill, items) {
 
   doc.text(`Invoice No.`, metaCols[0] + 4, rightY + 10);
   doc.setFont("helvetica", "bold");
-  doc.text(`${bill.bill_number}`, metaCols[0] + 4, rightY + 19);
+  doc.text(`${bill.invoice_number}`, metaCols[0] + 4, rightY + 19);
   doc.setFont("helvetica", "normal");
 
   doc.text(`Dated`, metaCols[1] + 4, rightY + 10);
@@ -2520,5 +2520,5 @@ async function generateInvoicePdf(currentUser, bill, items) {
   doc.setFont("helvetica", "normal");
   doc.text("Authorised Signatory", sigX + 50, pageHeight - margin - 8);
 
-  doc.save(`${bill.bill_number || "Invoice"}.pdf`);
+  doc.save(`${bill.invoice_number || "Invoice"}.pdf`);
 }
