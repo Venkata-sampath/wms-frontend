@@ -305,6 +305,9 @@ async function renderCreate(container, currentUser) {
     // Non-fatal
   }
 
+  // Pre-fill Invoice Date with current date (YYYY-MM-DD)
+  const todayDate = new Date().toISOString().split("T")[0];
+
   container.innerHTML = `
     <div class="container-fluid p-0 p-sm-4 animate-fade-in" style="max-width: 1100px; margin: 0 auto;">
 
@@ -413,8 +416,8 @@ async function renderCreate(container, currentUser) {
               <input type="text" id="bill-number-input" class="form-control bg-light" placeholder="e.g. FCS/250/2026-27" required>
             </div>
             <div class="col-md-4">
-              <label class="form-label small fw-semibold text-muted">Invoice Date *</label>
-              <input type="date" id="invoice-date-input" class="form-control bg-light" required>
+              <label class="form-label small fw-semibold text-muted">Invoice Date</label>
+              <input type="date" id="invoice-date-input" class="form-control bg-light" value="${todayDate}" readonly required>
             </div>
             <div class="col-md-4">
               <label class="form-label small fw-semibold text-muted">Mode / Terms of Payment</label>
@@ -844,7 +847,6 @@ async function renderCreate(container, currentUser) {
       grand_total: document.getElementById("grand-total-input").value || 0,
       notes: document.getElementById("notes-input").value.trim() || null,
       items,
-      // Metadata overrides for Tally PDF generator
       wh_company_name: document
         .getElementById("wh-company-name-input")
         .value.trim(),
@@ -965,9 +967,6 @@ async function renderDetails(
           ${
             !isPaid
               ? `
-            <button id="edit-bill-btn" class="btn btn-outline-secondary btn-sm fw-semibold shadow-sm">
-              <i class="bi bi-pencil me-1"></i> ${editMode ? "Cancel Edit" : "Edit"}
-            </button>
             <button id="mark-paid-btn" class="btn btn-success btn-sm fw-semibold shadow-sm">
               <i class="bi bi-check-circle me-1"></i> Mark Paid
             </button>
@@ -1016,10 +1015,6 @@ async function renderDetails(
     });
 
   if (!isPaid) {
-    document.getElementById("edit-bill-btn").addEventListener("click", () => {
-      renderDetails(container, currentUser, billingId, !editMode);
-    });
-
     document.getElementById("mark-paid-btn").addEventListener("click", () => {
       confirmAction(
         "Mark this bill as Paid?",
@@ -1059,30 +1054,17 @@ async function renderDetails(
     });
   }
 
-  if (editMode) {
-    renderEditForm(
-      bodyEl,
-      alertAnchor,
-      container,
-      currentUser,
-      bill,
-      items,
-      attachments,
-      billingId,
-    );
-  } else {
-    renderReadOnlyBody(
-      bodyEl,
-      bill,
-      items,
-      attachments,
-      alertAnchor,
-      container,
-      currentUser,
-      billingId,
-      isPaid,
-    );
-  }
+  renderReadOnlyBody(
+    bodyEl,
+    bill,
+    items,
+    attachments,
+    alertAnchor,
+    container,
+    currentUser,
+    billingId,
+    isPaid,
+  );
 }
 
 function renderReadOnlyBody(
@@ -1540,7 +1522,7 @@ async function renderEditForm(
             <input type="text" class="form-control form-control-sm main-desc-input" value="${escapeHtml(prefill ? prefill.main_description || prefill.description : "")}" required>
           </div>
           <div class="col-md-3">
-            <label class="form-label extra-small fw-semibold text-muted">HSN/SAC Code *</label>
+            <label class="form-label extra-small fw-semibold text-muted">HSN/SAC Code (Manual) *</label>
             <input type="text" class="form-control form-control-sm hsn-sac-input" value="${escapeHtml(prefill ? prefill.hsn_sac : "")}" required>
           </div>
           <div class="col-md-3">
@@ -2191,7 +2173,6 @@ async function generateInvoicePdf(currentUser, bill, items) {
   items.forEach((item) => {
     // Page Break Check for Main Item
     if (y > pageHeight - margin - 150) {
-      // Draw bottom vertical lines before breaking
       cols.forEach((col, idx) => {
         if (idx > 0) doc.line(col.x, tableContentTopY - 24, col.x, y);
       });
@@ -2240,7 +2221,6 @@ async function generateInvoicePdf(currentUser, bill, items) {
       doc.setFontSize(7);
 
       item.sub_items.forEach((sub) => {
-        // Page Break Check for Sub Item
         if (y > pageHeight - margin - 150) {
           cols.forEach((col, idx) => {
             if (idx > 0) doc.line(col.x, tableContentTopY - 24, col.x, y);
@@ -2271,7 +2251,6 @@ async function generateInvoicePdf(currentUser, bill, items) {
     y += 4;
   });
 
-  // Check Page Break before Summary
   if (y > pageHeight - margin - 180) {
     cols.forEach((col, idx) => {
       if (idx > 0) doc.line(col.x, tableContentTopY - 24, col.x, y);
@@ -2330,10 +2309,8 @@ async function generateInvoicePdf(currentUser, bill, items) {
     y += 12;
   }
 
-  // Draw Vertical Table Column Lines
   let tableBottomY = Math.max(y + 10, margin + 450);
 
-  // If we pushed too far, bound it to the page
   if (tableBottomY > pageHeight - margin - 220) {
     tableBottomY = y + 10;
   }
@@ -2487,7 +2464,6 @@ async function generateInvoicePdf(currentUser, bill, items) {
   y += 16;
   doc.line(margin, y, pageWidth - margin, y);
 
-  // Check Page Break before Footer
   if (y > pageHeight - margin - 80) {
     doc.addPage();
     addHeaderAndOuterBox();
