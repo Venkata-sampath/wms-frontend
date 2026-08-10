@@ -8,6 +8,130 @@ import { Api } from "../../api.js";
 
 let jsPdfLoadPromise = null;
 
+// =========================================================================
+// GST STATE CODE LOOKUP — first 2 chars of any GSTIN are the fixed
+// official CBIC state/UT code. Used to auto-derive state_name/state_code
+// for both warehouse and buyer, and to auto-decide CGST+SGST (intra-state)
+// vs IGST (inter-state) based on warehouse state vs Place of Supply.
+// =========================================================================
+const GST_STATE_CODES = {
+  "01": "Jammu and Kashmir",
+  "02": "Himachal Pradesh",
+  "03": "Punjab",
+  "04": "Chandigarh",
+  "05": "Uttarakhand",
+  "06": "Haryana",
+  "07": "Delhi",
+  "08": "Rajasthan",
+  "09": "Uttar Pradesh",
+  10: "Bihar",
+  11: "Sikkim",
+  12: "Arunachal Pradesh",
+  13: "Nagaland",
+  14: "Manipur",
+  15: "Mizoram",
+  16: "Tripura",
+  17: "Meghalaya",
+  18: "Assam",
+  19: "West Bengal",
+  20: "Jharkhand",
+  21: "Odisha",
+  22: "Chhattisgarh",
+  23: "Madhya Pradesh",
+  24: "Gujarat",
+  25: "Daman and Diu",
+  26: "Dadra and Nagar Haveli",
+  27: "Maharashtra",
+  28: "Andhra Pradesh (Old)",
+  29: "Karnataka",
+  30: "Goa",
+  31: "Lakshadweep",
+  32: "Kerala",
+  33: "Tamil Nadu",
+  34: "Puducherry",
+  35: "Andaman and Nicobar Islands",
+  36: "Telangana",
+  37: "Andhra Pradesh",
+  38: "Ladakh",
+  97: "Other Territory",
+};
+
+/**
+ * Derive { state_name, state_code } from a GSTIN's first 2 characters.
+ * Returns nulls if the GSTIN doesn't look valid — never throws, always
+ * safe to call on partial/incomplete input.
+ */
+function deriveStateFromGstin(gstin) {
+  if (!gstin) return { state_name: "", state_code: "" };
+  const code = String(gstin).trim().substring(0, 2);
+  if (GST_STATE_CODES[code]) {
+    return { state_name: GST_STATE_CODES[code], state_code: code };
+  }
+  return { state_name: "", state_code: "" };
+}
+
+/**
+ * Wire a GSTIN input to auto-fill paired state name/code inputs on
+ * blur/change. The state fields remain freely editable afterwards —
+ * this only pre-fills, it never locks the fields.
+ */
+function wireGstinAutoState(gstinInputId, stateNameInputId, stateCodeInputId) {
+  const gstinInput = document.getElementById(gstinInputId);
+  const stateNameInput = document.getElementById(stateNameInputId);
+  const stateCodeInput = document.getElementById(stateCodeInputId);
+  if (!gstinInput || !stateNameInput || !stateCodeInput) return;
+
+  const autoFill = () => {
+    const derived = deriveStateFromGstin(gstinInput.value);
+    if (derived.state_code) {
+      stateNameInput.value = derived.state_name;
+      stateCodeInput.value = derived.state_code;
+    }
+  };
+  gstinInput.addEventListener("change", autoFill);
+  gstinInput.addEventListener("blur", autoFill);
+}
+
+/**
+ * Reverse-lookup a state code from a free-text state name (case-insensitive,
+ * exact match against the official list). Used to resolve Place of Supply
+ * (entered as a state name) into a state code for the tax-type comparison.
+ */
+function getStateCodeByName(stateName) {
+  if (!stateName) return "";
+  const normalized = String(stateName).trim().toLowerCase();
+  for (const [code, name] of Object.entries(GST_STATE_CODES)) {
+    if (name.toLowerCase() === normalized) return code;
+  }
+  return "";
+}
+
+/**
+ * GST tax-type decision: intra-state (CGST+SGST split evenly) if the
+ * warehouse's state code matches the buyer's Place-of-Supply state code,
+ * otherwise inter-state (IGST at the full rate).
+ */
+function computeTaxType(whStateCode, buyerStateCode) {
+  if (whStateCode && buyerStateCode && whStateCode === buyerStateCode) {
+    return "intra";
+  }
+  if (whStateCode && buyerStateCode) {
+    return "inter";
+  }
+  // Default to intra when we don't have enough info to decide otherwise
+  return "intra";
+}
+
+/**
+ * Auto-calculated Round Off: the adjustment needed to bring a pre-round
+ * total to the nearest whole rupee (matches Tally-style invoices, e.g.
+ * "(-)0.08"). Stays editable — this is only ever a starting suggestion.
+ */
+function computeAutoRoundOff(preRoundTotal) {
+  const rounded = Math.round(preRoundTotal);
+  return rounded - preRoundTotal;
+}
+
 /**
  * Number to Words converter (Indian Currency System)
  */
@@ -343,15 +467,27 @@ async function renderCreate(container, currentUser) {
               <input type="text" id="wh-address-input" class="form-control bg-light" value="${escapeHtml(currentUser.address || "")}">
             </div>
             <div class="col-md-4">
+              <label class="form-label small fw-semibold text-muted">State Name <span class="text-muted" style="font-weight:400;">(auto from GSTIN, editable)</span></label>
+              <input type="text" id="wh-state-name-input" class="form-control bg-light">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small fw-semibold text-muted">State Code</label>
+              <input type="text" id="wh-state-code-input" class="form-control bg-light" maxlength="2">
+            </div>
+            <div class="col-md-6">
               <label class="form-label small fw-semibold text-muted">FSSAI NO</label>
               <input type="text" id="wh-fssai-input" class="form-control bg-light" placeholder="e.g. 13617012000235">
             </div>
             <div class="col-md-4">
-              <label class="form-label small fw-semibold text-muted">Bank Name & A/c No.</label>
-              <input type="text" id="wh-bank-input" class="form-control bg-light" placeholder="e.g. KOTAK MAHINDRA BANK 05532970000011">
+              <label class="form-label small fw-semibold text-muted">Bank Name</label>
+              <input type="text" id="wh-bank-name-input" class="form-control bg-light" placeholder="e.g. KOTAK MAHINDRA BANK">
             </div>
             <div class="col-md-4">
-              <label class="form-label small fw-semibold text-muted">Branch & IFSC Code</label>
+              <label class="form-label small fw-semibold text-muted">Account Number</label>
+              <input type="text" id="wh-account-number-input" class="form-control bg-light" placeholder="e.g. 05532970000011">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold text-muted">Branch & IFS Code</label>
               <input type="text" id="wh-ifsc-input" class="form-control bg-light" placeholder="e.g. Dilsukhnagar & KKBK0007446">
             </div>
           </div>
@@ -390,17 +526,29 @@ async function renderCreate(container, currentUser) {
               <label class="form-label small fw-semibold text-muted">Buyer Address</label>
               <input type="text" id="buyer-address-input" class="form-control bg-light">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label small fw-semibold text-muted">Contact Person</label>
               <input type="text" id="buyer-contact-input" class="form-control bg-light">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label small fw-semibold text-muted">Phone</label>
               <input type="text" id="buyer-phone-input" class="form-control bg-light">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label small fw-semibold text-muted">Email</label>
               <input type="email" id="buyer-email-input" class="form-control bg-light">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold text-muted">State Name <span class="text-muted" style="font-weight:400;">(auto, editable)</span></label>
+              <input type="text" id="buyer-state-name-input" class="form-control bg-light">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold text-muted">State Code</label>
+              <input type="text" id="buyer-state-code-input" class="form-control bg-light" maxlength="2">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold text-muted">Place of Supply *</label>
+              <input type="text" id="place-of-supply-input" class="form-control bg-light" placeholder="e.g. Telangana">
             </div>
           </div>
         `,
@@ -424,12 +572,48 @@ async function renderCreate(container, currentUser) {
               <input type="text" id="due-date-input" class="form-control bg-light" placeholder="e.g. 30 Days">
             </div>
             <div class="col-md-6">
-              <label class="form-label small fw-semibold text-muted">Delivery Note / Reference No. & Date</label>
-              <input type="text" id="reference-number-input" class="form-control bg-light" placeholder="e.g. FCS/250/2026-27 dt. 3-Aug-26">
+              <label class="form-label small fw-semibold text-muted">Delivery Note</label>
+              <input type="text" id="delivery-note-input" class="form-control bg-light">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold text-muted">Reference No.</label>
+              <input type="text" id="reference-number-input" class="form-control bg-light" placeholder="e.g. FCS/250/2026-27">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold text-muted">Reference Date</label>
+              <input type="date" id="reference-date-input" class="form-control bg-light">
             </div>
             <div class="col-md-6">
-              <label class="form-label small fw-semibold text-muted">Other References (Billing Month)</label>
+              <label class="form-label small fw-semibold text-muted">Other References (e.g. Billing Month)</label>
               <input type="text" id="other-ref-input" class="form-control bg-light" placeholder="e.g. Month of July-2026">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold text-muted">Buyer's Order No.</label>
+              <input type="text" id="buyers-order-no-input" class="form-control bg-light">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold text-muted">Buyer's Order Date</label>
+              <input type="date" id="buyers-order-date-input" class="form-control bg-light">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold text-muted">Dispatch Doc No.</label>
+              <input type="text" id="dispatch-doc-no-input" class="form-control bg-light">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold text-muted">Delivery Note Date</label>
+              <input type="date" id="delivery-note-date-input" class="form-control bg-light">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold text-muted">Dispatched Through</label>
+              <input type="text" id="dispatch-through-input" class="form-control bg-light">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold text-muted">Destination</label>
+              <input type="text" id="destination-input" class="form-control bg-light">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold text-muted">Terms of Delivery</label>
+              <input type="text" id="terms-of-delivery-input" class="form-control bg-light">
             </div>
           </div>
         `,
@@ -469,19 +653,27 @@ async function renderCreate(container, currentUser) {
           `
           <div class="row g-3">
             <div class="col-md-4">
+              <label class="form-label small fw-semibold text-muted">Tax Type <span class="text-muted" style="font-weight:400;">(auto: WH state vs Place of Supply)</span></label>
+              <input type="text" id="tax-type-display" class="form-control bg-light fw-bold" readonly value="Intra-State (CGST + SGST)">
+            </div>
+            <div class="col-md-4">
               <label class="form-label small fw-semibold text-muted">Subtotal (Auto-Calculated)</label>
               <input type="number" step="0.01" id="subtotal-input" class="form-control bg-light fw-bold" readonly value="0.00">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-4" id="cgst-wrap">
               <label class="form-label small fw-semibold text-muted">Total CGST Amount</label>
               <input type="number" step="0.01" id="cgst-amount-input" class="form-control bg-light" readonly value="0.00">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-4" id="sgst-wrap">
               <label class="form-label small fw-semibold text-muted">Total SGST Amount</label>
               <input type="number" step="0.01" id="sgst-amount-input" class="form-control bg-light" readonly value="0.00">
             </div>
+            <div class="col-md-4 d-none" id="igst-wrap">
+              <label class="form-label small fw-semibold text-muted">Total IGST Amount</label>
+              <input type="number" step="0.01" id="igst-amount-input" class="form-control bg-light" readonly value="0.00">
+            </div>
             <div class="col-md-3">
-              <label class="form-label small fw-semibold text-muted">Round Off (+ / -)</label>
+              <label class="form-label small fw-semibold text-muted">Round Off (+ / -) <span class="text-muted" style="font-weight:400;">(auto, editable)</span></label>
               <input type="number" step="0.01" id="roundoff-input" class="form-control bg-light" value="0.00">
             </div>
             <div class="col-md-3">
@@ -543,6 +735,26 @@ async function renderCreate(container, currentUser) {
     .getElementById("cancel-create-btn")
     .addEventListener("click", () => renderList(container, currentUser));
 
+  // Auto-derive warehouse state from its GSTIN on load + on edit
+  wireGstinAutoState(
+    "wh-gstin-input",
+    "wh-state-name-input",
+    "wh-state-code-input",
+  );
+  {
+    const derived = deriveStateFromGstin(
+      document.getElementById("wh-gstin-input").value,
+    );
+    document.getElementById("wh-state-name-input").value = derived.state_name;
+    document.getElementById("wh-state-code-input").value = derived.state_code;
+  }
+
+  wireGstinAutoState(
+    "buyer-gstin-input",
+    "buyer-state-name-input",
+    "buyer-state-code-input",
+  );
+
   // Auto pre-fill buyer information when client is selected
   clientSelect.addEventListener("change", () => {
     const selectedId = clientSelect.value;
@@ -556,8 +768,27 @@ async function renderCreate(container, currentUser) {
         client.contact_person || "";
       document.getElementById("buyer-phone-input").value = client.phone || "";
       document.getElementById("buyer-email-input").value = client.email || "";
+
+      const derived = deriveStateFromGstin(client.gstin || "");
+      document.getElementById("buyer-state-name-input").value =
+        derived.state_name;
+      document.getElementById("buyer-state-code-input").value =
+        derived.state_code;
+      document.getElementById("place-of-supply-input").value =
+        derived.state_name;
+      recalculateFinancials();
     }
   });
+
+  document
+    .getElementById("place-of-supply-input")
+    .addEventListener("input", recalculateFinancials);
+  document
+    .getElementById("wh-state-code-input")
+    .addEventListener("input", recalculateFinancials);
+  document
+    .getElementById("buyer-state-code-input")
+    .addEventListener("input", recalculateFinancials);
 
   let mainItemCount = 0;
 
@@ -679,10 +910,22 @@ async function renderCreate(container, currentUser) {
     tbody.appendChild(tr);
   }
 
-  function recalculateFinancials() {
+  function recalculateFinancials(autoRoundOff = true) {
     let grandSubtotal = 0;
     let totalCgst = 0;
     let totalSgst = 0;
+    let totalIgst = 0;
+
+    const whStateCode = document
+      .getElementById("wh-state-code-input")
+      .value.trim();
+    const placeOfSupply = document
+      .getElementById("place-of-supply-input")
+      .value.trim();
+    const buyerStateCode =
+      getStateCodeByName(placeOfSupply) ||
+      document.getElementById("buyer-state-code-input").value.trim();
+    const taxType = computeTaxType(whStateCode, buyerStateCode);
 
     mainContainer.querySelectorAll(".main-item-card").forEach((card) => {
       let cardSubtotal = 0;
@@ -697,31 +940,54 @@ async function renderCreate(container, currentUser) {
 
       const taxRate =
         parseFloat(card.querySelector(".tax-rate-select").value) || 0;
-      const cgstRate = taxRate / 2;
-      const sgstRate = taxRate / 2;
 
-      totalCgst += (cardSubtotal * cgstRate) / 100;
-      totalSgst += (cardSubtotal * sgstRate) / 100;
+      if (taxType === "inter") {
+        totalIgst += (cardSubtotal * taxRate) / 100;
+      } else {
+        totalCgst += (cardSubtotal * (taxRate / 2)) / 100;
+        totalSgst += (cardSubtotal * (taxRate / 2)) / 100;
+      }
     });
 
     document.getElementById("subtotal-input").value = grandSubtotal.toFixed(2);
     document.getElementById("cgst-amount-input").value = totalCgst.toFixed(2);
     document.getElementById("sgst-amount-input").value = totalSgst.toFixed(2);
+    document.getElementById("igst-amount-input").value = totalIgst.toFixed(2);
 
-    const roundoff =
-      parseFloat(document.getElementById("roundoff-input").value) || 0;
+    document
+      .getElementById("cgst-wrap")
+      .classList.toggle("d-none", taxType === "inter");
+    document
+      .getElementById("sgst-wrap")
+      .classList.toggle("d-none", taxType === "inter");
+    document
+      .getElementById("igst-wrap")
+      .classList.toggle("d-none", taxType !== "inter");
+    document.getElementById("tax-type-display").value =
+      taxType === "inter" ? "Inter-State (IGST)" : "Intra-State (CGST + SGST)";
+
     const discount =
       parseFloat(document.getElementById("discount-input").value) || 0;
     const otherCharges =
       parseFloat(document.getElementById("other-charges-input").value) || 0;
 
-    const grandTotal =
+    const preRoundTotal =
       grandSubtotal +
       totalCgst +
       totalSgst +
-      roundoff +
+      totalIgst +
       otherCharges -
       discount;
+
+    // Auto-suggest round-off whenever items/discount/charges change, but
+    // never overwrite it if the user is actively editing the field itself.
+    const roundoffInput = document.getElementById("roundoff-input");
+    if (autoRoundOff) {
+      roundoffInput.value = computeAutoRoundOff(preRoundTotal).toFixed(2);
+    }
+    const roundoff = parseFloat(roundoffInput.value) || 0;
+
+    const grandTotal = preRoundTotal + roundoff;
     document.getElementById("grand-total-input").value = grandTotal.toFixed(2);
   }
 
@@ -730,7 +996,7 @@ async function renderCreate(container, currentUser) {
 
   document
     .getElementById("roundoff-input")
-    .addEventListener("input", recalculateFinancials);
+    .addEventListener("input", () => recalculateFinancials(false));
   document
     .getElementById("discount-input")
     .addEventListener("input", recalculateFinancials);
@@ -826,6 +1092,17 @@ async function renderCreate(container, currentUser) {
       return;
     }
 
+    const whStateCodeFinal = document
+      .getElementById("wh-state-code-input")
+      .value.trim();
+    const placeOfSupplyFinal = document
+      .getElementById("place-of-supply-input")
+      .value.trim();
+    const buyerStateCodeFinal =
+      getStateCodeByName(placeOfSupplyFinal) ||
+      document.getElementById("buyer-state-code-input").value.trim();
+    const taxTypeFinal = computeTaxType(whStateCodeFinal, buyerStateCodeFinal);
+
     const payload = {
       client_id,
       invoice_number,
@@ -837,11 +1114,9 @@ async function renderCreate(container, currentUser) {
         document.getElementById("period-to-input").value || null,
       reference_number:
         document.getElementById("reference-number-input").value.trim() || null,
+      reference_date:
+        document.getElementById("reference-date-input").value || null,
       subtotal: document.getElementById("subtotal-input").value || 0,
-      tax: (
-        parseFloat(document.getElementById("cgst-amount-input").value || 0) +
-        parseFloat(document.getElementById("sgst-amount-input").value || 0)
-      ).toFixed(2),
       discount: document.getElementById("discount-input").value || 0,
       other_charges: document.getElementById("other-charges-input").value || 0,
       grand_total: document.getElementById("grand-total-input").value || 0,
@@ -852,9 +1127,16 @@ async function renderCreate(container, currentUser) {
         .value.trim(),
       wh_gstin: document.getElementById("wh-gstin-input").value.trim(),
       wh_address: document.getElementById("wh-address-input").value.trim(),
+      wh_state_name: document
+        .getElementById("wh-state-name-input")
+        .value.trim(),
+      wh_state_code: whStateCodeFinal,
       wh_fssai: document.getElementById("wh-fssai-input").value.trim(),
-      wh_bank: document.getElementById("wh-bank-input").value.trim(),
-      wh_ifsc: document.getElementById("wh-ifsc-input").value.trim(),
+      wh_bank_name: document.getElementById("wh-bank-name-input").value.trim(),
+      wh_account_number: document
+        .getElementById("wh-account-number-input")
+        .value.trim(),
+      wh_branch_ifsc: document.getElementById("wh-ifsc-input").value.trim(),
       buyer_name: document.getElementById("buyer-name-input").value.trim(),
       buyer_gstin: document.getElementById("buyer-gstin-input").value.trim(),
       buyer_address: document
@@ -865,10 +1147,37 @@ async function renderCreate(container, currentUser) {
         .value.trim(),
       buyer_phone: document.getElementById("buyer-phone-input").value.trim(),
       buyer_email: document.getElementById("buyer-email-input").value.trim(),
+      buyer_state_name: document
+        .getElementById("buyer-state-name-input")
+        .value.trim(),
+      buyer_state_code: buyerStateCodeFinal,
+      place_of_supply: placeOfSupplyFinal,
       other_ref: document.getElementById("other-ref-input").value.trim(),
+      tax_type: taxTypeFinal,
       cgst_amount: document.getElementById("cgst-amount-input").value || 0,
       sgst_amount: document.getElementById("sgst-amount-input").value || 0,
+      igst_amount: document.getElementById("igst-amount-input").value || 0,
       round_off: document.getElementById("roundoff-input").value || 0,
+      buyers_order_no: document
+        .getElementById("buyers-order-no-input")
+        .value.trim(),
+      buyers_order_date:
+        document.getElementById("buyers-order-date-input").value || null,
+      dispatch_doc_no: document
+        .getElementById("dispatch-doc-no-input")
+        .value.trim(),
+      dispatch_through: document
+        .getElementById("dispatch-through-input")
+        .value.trim(),
+      destination: document.getElementById("destination-input").value.trim(),
+      terms_of_delivery: document
+        .getElementById("terms-of-delivery-input")
+        .value.trim(),
+      delivery_note: document
+        .getElementById("delivery-note-input")
+        .value.trim(),
+      delivery_note_date:
+        document.getElementById("delivery-note-date-input").value || null,
     };
 
     submitBtn.disabled = true;
@@ -967,6 +1276,9 @@ async function renderDetails(
           ${
             !isPaid
               ? `
+            <button id="edit-bill-btn" class="btn btn-outline-primary btn-sm fw-semibold shadow-sm">
+              <i class="bi bi-pencil me-1"></i> Edit
+            </button>
             <button id="mark-paid-btn" class="btn btn-success btn-sm fw-semibold shadow-sm">
               <i class="bi bi-check-circle me-1"></i> Mark Paid
             </button>
@@ -1052,19 +1364,36 @@ async function renderDetails(
         },
       );
     });
+
+    document.getElementById("edit-bill-btn").addEventListener("click", () => {
+      renderDetails(container, currentUser, billingId, true);
+    });
   }
 
-  renderReadOnlyBody(
-    bodyEl,
-    bill,
-    items,
-    attachments,
-    alertAnchor,
-    container,
-    currentUser,
-    billingId,
-    isPaid,
-  );
+  if (editMode) {
+    await renderEditForm(
+      bodyEl,
+      alertAnchor,
+      container,
+      currentUser,
+      bill,
+      items,
+      attachments,
+      billingId,
+    );
+  } else {
+    renderReadOnlyBody(
+      bodyEl,
+      bill,
+      items,
+      attachments,
+      alertAnchor,
+      container,
+      currentUser,
+      billingId,
+      isPaid,
+    );
+  }
 }
 
 function renderReadOnlyBody(
@@ -1086,8 +1415,16 @@ function renderReadOnlyBody(
       <div class="row g-3 small">
         <div class="col-md-4"><span class="text-muted d-block">Invoice Number</span><span class="fw-semibold">${escapeHtml(bill.invoice_number)}</span></div>
         <div class="col-md-4"><span class="text-muted d-block">Invoice Date</span><span class="fw-semibold">${escapeHtml(bill.invoice_date || "—")}</span></div>
-        <div class="col-md-4"><span class="text-muted d-block">Due Date / Terms</span><span class="fw-semibold">${escapeHtml(bill.due_date || "—")}</span></div>
-        <div class="col-md-6"><span class="text-muted d-block">Reference Number</span><span class="fw-semibold">${escapeHtml(bill.reference_number || "—")}</span></div>
+        <div class="col-md-4"><span class="text-muted d-block">Mode / Terms of Payment</span><span class="fw-semibold">${escapeHtml(bill.due_date || "—")}</span></div>
+        <div class="col-md-4"><span class="text-muted d-block">Delivery Note</span><span class="fw-semibold">${escapeHtml(bill.delivery_note || "—")}</span></div>
+        <div class="col-md-4"><span class="text-muted d-block">Reference No. & Date</span><span class="fw-semibold">${escapeHtml(bill.reference_number || "—")}${bill.reference_date ? " dt. " + escapeHtml(bill.reference_date) : ""}</span></div>
+        <div class="col-md-4"><span class="text-muted d-block">Other References</span><span class="fw-semibold">${escapeHtml(bill.other_ref || "—")}</span></div>
+        <div class="col-md-4"><span class="text-muted d-block">Buyer's Order No. & Date</span><span class="fw-semibold">${escapeHtml(bill.buyers_order_no || "—")}${bill.buyers_order_date ? " dt. " + escapeHtml(bill.buyers_order_date) : ""}</span></div>
+        <div class="col-md-4"><span class="text-muted d-block">Dispatch Doc No.</span><span class="fw-semibold">${escapeHtml(bill.dispatch_doc_no || "—")}</span></div>
+        <div class="col-md-4"><span class="text-muted d-block">Delivery Note Date</span><span class="fw-semibold">${escapeHtml(bill.delivery_note_date || "—")}</span></div>
+        <div class="col-md-4"><span class="text-muted d-block">Dispatched Through</span><span class="fw-semibold">${escapeHtml(bill.dispatch_through || "—")}</span></div>
+        <div class="col-md-4"><span class="text-muted d-block">Destination</span><span class="fw-semibold">${escapeHtml(bill.destination || "—")}</span></div>
+        <div class="col-md-4"><span class="text-muted d-block">Terms of Delivery</span><span class="fw-semibold">${escapeHtml(bill.terms_of_delivery || "—")}</span></div>
       </div>
     `,
     )}
@@ -1111,6 +1448,8 @@ function renderReadOnlyBody(
         <div class="fw-semibold">${escapeHtml(bill.buyer_name || bill.client_name)} <span class="text-muted">(${escapeHtml(bill.client_code || "")})</span></div>
         ${bill.buyer_gstin || bill.client_gstin ? `<div class="text-muted">GSTIN: ${escapeHtml(bill.buyer_gstin || bill.client_gstin)}</div>` : ""}
         ${bill.buyer_address ? `<div class="text-muted">Address: ${escapeHtml(bill.buyer_address)}</div>` : ""}
+        ${bill.buyer_state_name ? `<div class="text-muted">State: ${escapeHtml(bill.buyer_state_name)}, Code: ${escapeHtml(bill.buyer_state_code || "—")}</div>` : ""}
+        ${bill.place_of_supply ? `<div class="text-muted">Place of Supply: ${escapeHtml(bill.place_of_supply)}</div>` : ""}
       </div>
     `,
     )}
@@ -1301,16 +1640,28 @@ async function renderEditForm(
             <input type="text" id="edit-wh-address-input" class="form-control bg-light" value="${escapeHtml(bill.wh_address || currentUser.address || "")}">
           </div>
           <div class="col-md-4">
+            <label class="form-label small fw-semibold text-muted">State Name <span class="text-muted" style="font-weight:400;">(auto, editable)</span></label>
+            <input type="text" id="edit-wh-state-name-input" class="form-control bg-light" value="${escapeHtml(bill.wh_state_name || "")}">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small fw-semibold text-muted">State Code</label>
+            <input type="text" id="edit-wh-state-code-input" class="form-control bg-light" maxlength="2" value="${escapeHtml(bill.wh_state_code || "")}">
+          </div>
+          <div class="col-md-6">
             <label class="form-label small fw-semibold text-muted">FSSAI NO</label>
             <input type="text" id="edit-wh-fssai-input" class="form-control bg-light" value="${escapeHtml(bill.wh_fssai || "")}" placeholder="e.g. 13617012000235">
           </div>
           <div class="col-md-4">
-            <label class="form-label small fw-semibold text-muted">Bank Name & A/c No.</label>
-            <input type="text" id="edit-wh-bank-input" class="form-control bg-light" value="${escapeHtml(bill.wh_bank || "")}">
+            <label class="form-label small fw-semibold text-muted">Bank Name</label>
+            <input type="text" id="edit-wh-bank-name-input" class="form-control bg-light" value="${escapeHtml(bill.wh_bank_name || "")}">
           </div>
           <div class="col-md-4">
-            <label class="form-label small fw-semibold text-muted">Branch & IFSC Code</label>
-            <input type="text" id="edit-wh-ifsc-input" class="form-control bg-light" value="${escapeHtml(bill.wh_ifsc || "")}">
+            <label class="form-label small fw-semibold text-muted">Account Number</label>
+            <input type="text" id="edit-wh-account-number-input" class="form-control bg-light" value="${escapeHtml(bill.wh_account_number || "")}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold text-muted">Branch & IFS Code</label>
+            <input type="text" id="edit-wh-ifsc-input" class="form-control bg-light" value="${escapeHtml(bill.wh_branch_ifsc || "")}">
           </div>
         </div>
       `,
@@ -1348,17 +1699,29 @@ async function renderEditForm(
             <label class="form-label small fw-semibold text-muted">Buyer Address</label>
             <input type="text" id="edit-buyer-address-input" class="form-control bg-light" value="${escapeHtml(bill.buyer_address || "")}">
           </div>
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label class="form-label small fw-semibold text-muted">Contact Person</label>
             <input type="text" id="edit-buyer-contact-input" class="form-control bg-light" value="${escapeHtml(bill.buyer_contact || "")}">
           </div>
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label class="form-label small fw-semibold text-muted">Phone</label>
             <input type="text" id="edit-buyer-phone-input" class="form-control bg-light" value="${escapeHtml(bill.buyer_phone || "")}">
           </div>
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label class="form-label small fw-semibold text-muted">Email</label>
             <input type="email" id="edit-buyer-email-input" class="form-control bg-light" value="${escapeHtml(bill.buyer_email || "")}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold text-muted">State Name <span class="text-muted" style="font-weight:400;">(auto, editable)</span></label>
+            <input type="text" id="edit-buyer-state-name-input" class="form-control bg-light" value="${escapeHtml(bill.buyer_state_name || "")}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small fw-semibold text-muted">State Code</label>
+            <input type="text" id="edit-buyer-state-code-input" class="form-control bg-light" maxlength="2" value="${escapeHtml(bill.buyer_state_code || "")}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small fw-semibold text-muted">Place of Supply *</label>
+            <input type="text" id="edit-place-of-supply-input" class="form-control bg-light" value="${escapeHtml(bill.place_of_supply || "")}">
           </div>
         </div>
       `,
@@ -1378,16 +1741,52 @@ async function renderEditForm(
             <input type="date" id="edit-invoice-date-input" class="form-control bg-light" value="${bill.invoice_date || ""}" readonly required>
           </div>
           <div class="col-md-4">
-            <label class="form-label small fw-semibold text-muted">Due Date / Terms</label>
+            <label class="form-label small fw-semibold text-muted">Mode / Terms of Payment</label>
             <input type="text" id="edit-due-date-input" class="form-control bg-light" value="${escapeHtml(bill.due_date || "")}">
           </div>
           <div class="col-md-6">
-            <label class="form-label small fw-semibold text-muted">Delivery Note / Reference No. & Date</label>
+            <label class="form-label small fw-semibold text-muted">Delivery Note</label>
+            <input type="text" id="edit-delivery-note-input" class="form-control bg-light" value="${escapeHtml(bill.delivery_note || "")}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold text-muted">Reference No.</label>
             <input type="text" id="edit-reference-number-input" class="form-control bg-light" value="${escapeHtml(bill.reference_number || "")}">
           </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold text-muted">Reference Date</label>
+            <input type="date" id="edit-reference-date-input" class="form-control bg-light" value="${bill.reference_date || ""}">
+          </div>
           <div class="col-md-6">
-            <label class="form-label small fw-semibold text-muted">Other References (Billing Month)</label>
+            <label class="form-label small fw-semibold text-muted">Other References (e.g. Billing Month)</label>
             <input type="text" id="edit-other-ref-input" class="form-control bg-light" value="${escapeHtml(bill.other_ref || "")}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold text-muted">Buyer's Order No.</label>
+            <input type="text" id="edit-buyers-order-no-input" class="form-control bg-light" value="${escapeHtml(bill.buyers_order_no || "")}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold text-muted">Buyer's Order Date</label>
+            <input type="date" id="edit-buyers-order-date-input" class="form-control bg-light" value="${bill.buyers_order_date || ""}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold text-muted">Dispatch Doc No.</label>
+            <input type="text" id="edit-dispatch-doc-no-input" class="form-control bg-light" value="${escapeHtml(bill.dispatch_doc_no || "")}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold text-muted">Delivery Note Date</label>
+            <input type="date" id="edit-delivery-note-date-input" class="form-control bg-light" value="${bill.delivery_note_date || ""}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold text-muted">Dispatched Through</label>
+            <input type="text" id="edit-dispatch-through-input" class="form-control bg-light" value="${escapeHtml(bill.dispatch_through || "")}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold text-muted">Destination</label>
+            <input type="text" id="edit-destination-input" class="form-control bg-light" value="${escapeHtml(bill.destination || "")}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold text-muted">Terms of Delivery</label>
+            <input type="text" id="edit-terms-of-delivery-input" class="form-control bg-light" value="${escapeHtml(bill.terms_of_delivery || "")}">
           </div>
         </div>
       `,
@@ -1427,19 +1826,27 @@ async function renderEditForm(
         `
         <div class="row g-3">
           <div class="col-md-4">
+            <label class="form-label small fw-semibold text-muted">Tax Type <span class="text-muted" style="font-weight:400;">(auto)</span></label>
+            <input type="text" id="edit-tax-type-display" class="form-control bg-light fw-bold" readonly value="${bill.tax_type === "inter" ? "Inter-State (IGST)" : "Intra-State (CGST + SGST)"}">
+          </div>
+          <div class="col-md-4">
             <label class="form-label small fw-semibold text-muted">Subtotal</label>
             <input type="number" step="0.01" id="edit-subtotal-input" class="form-control bg-light fw-bold" value="${bill.subtotal ?? 0}" readonly>
           </div>
-          <div class="col-md-4">
+          <div class="col-md-4 ${bill.tax_type === "inter" ? "d-none" : ""}" id="edit-cgst-wrap">
             <label class="form-label small fw-semibold text-muted">Total CGST Amount</label>
             <input type="number" step="0.01" id="edit-cgst-amount-input" class="form-control bg-light" value="${bill.cgst_amount ?? 0}" readonly>
           </div>
-          <div class="col-md-4">
+          <div class="col-md-4 ${bill.tax_type === "inter" ? "d-none" : ""}" id="edit-sgst-wrap">
             <label class="form-label small fw-semibold text-muted">Total SGST Amount</label>
             <input type="number" step="0.01" id="edit-sgst-amount-input" class="form-control bg-light" value="${bill.sgst_amount ?? 0}" readonly>
           </div>
+          <div class="col-md-4 ${bill.tax_type === "inter" ? "" : "d-none"}" id="edit-igst-wrap">
+            <label class="form-label small fw-semibold text-muted">Total IGST Amount</label>
+            <input type="number" step="0.01" id="edit-igst-amount-input" class="form-control bg-light" value="${bill.igst_amount ?? 0}" readonly>
+          </div>
           <div class="col-md-3">
-            <label class="form-label small fw-semibold text-muted">Round Off (+ / -)</label>
+            <label class="form-label small fw-semibold text-muted">Round Off (+ / -) <span class="text-muted" style="font-weight:400;">(auto, editable)</span></label>
             <input type="number" step="0.01" id="edit-roundoff-input" class="form-control bg-light" value="${bill.round_off ?? 0}">
           </div>
           <div class="col-md-3">
@@ -1480,6 +1887,17 @@ async function renderEditForm(
     "edit-main-items-container",
   );
 
+  wireGstinAutoState(
+    "edit-wh-gstin-input",
+    "edit-wh-state-name-input",
+    "edit-wh-state-code-input",
+  );
+  wireGstinAutoState(
+    "edit-buyer-gstin-input",
+    "edit-buyer-state-name-input",
+    "edit-buyer-state-code-input",
+  );
+
   editClientSelect.addEventListener("change", () => {
     const selectedId = editClientSelect.value;
     const client = clientsData.find((c) => c.id === selectedId);
@@ -1496,8 +1914,27 @@ async function renderEditForm(
         client.phone || "";
       document.getElementById("edit-buyer-email-input").value =
         client.email || "";
+
+      const derived = deriveStateFromGstin(client.gstin || "");
+      document.getElementById("edit-buyer-state-name-input").value =
+        derived.state_name;
+      document.getElementById("edit-buyer-state-code-input").value =
+        derived.state_code;
+      document.getElementById("edit-place-of-supply-input").value =
+        derived.state_name;
+      recalculateEditFinancials();
     }
   });
+
+  document
+    .getElementById("edit-place-of-supply-input")
+    .addEventListener("input", recalculateEditFinancials);
+  document
+    .getElementById("edit-wh-state-code-input")
+    .addEventListener("input", recalculateEditFinancials);
+  document
+    .getElementById("edit-buyer-state-code-input")
+    .addEventListener("input", recalculateEditFinancials);
 
   let editMainItemCount = 0;
 
@@ -1626,10 +2063,22 @@ async function renderEditForm(
     tbody.appendChild(tr);
   }
 
-  function recalculateEditFinancials() {
+  function recalculateEditFinancials(autoRoundOff = true) {
     let grandSubtotal = 0;
     let totalCgst = 0;
     let totalSgst = 0;
+    let totalIgst = 0;
+
+    const whStateCode = document
+      .getElementById("edit-wh-state-code-input")
+      .value.trim();
+    const placeOfSupply = document
+      .getElementById("edit-place-of-supply-input")
+      .value.trim();
+    const buyerStateCode =
+      getStateCodeByName(placeOfSupply) ||
+      document.getElementById("edit-buyer-state-code-input").value.trim();
+    const taxType = computeTaxType(whStateCode, buyerStateCode);
 
     editMainContainer.querySelectorAll(".main-item-card").forEach((card) => {
       let cardSubtotal = 0;
@@ -1644,11 +2093,13 @@ async function renderEditForm(
 
       const taxRate =
         parseFloat(card.querySelector(".tax-rate-select").value) || 0;
-      const cgstRate = taxRate / 2;
-      const sgstRate = taxRate / 2;
 
-      totalCgst += (cardSubtotal * cgstRate) / 100;
-      totalSgst += (cardSubtotal * sgstRate) / 100;
+      if (taxType === "inter") {
+        totalIgst += (cardSubtotal * taxRate) / 100;
+      } else {
+        totalCgst += (cardSubtotal * (taxRate / 2)) / 100;
+        totalSgst += (cardSubtotal * (taxRate / 2)) / 100;
+      }
     });
 
     document.getElementById("edit-subtotal-input").value =
@@ -1657,22 +2108,42 @@ async function renderEditForm(
       totalCgst.toFixed(2);
     document.getElementById("edit-sgst-amount-input").value =
       totalSgst.toFixed(2);
+    document.getElementById("edit-igst-amount-input").value =
+      totalIgst.toFixed(2);
 
-    const roundoff =
-      parseFloat(document.getElementById("edit-roundoff-input").value) || 0;
+    document
+      .getElementById("edit-cgst-wrap")
+      .classList.toggle("d-none", taxType === "inter");
+    document
+      .getElementById("edit-sgst-wrap")
+      .classList.toggle("d-none", taxType === "inter");
+    document
+      .getElementById("edit-igst-wrap")
+      .classList.toggle("d-none", taxType !== "inter");
+    document.getElementById("edit-tax-type-display").value =
+      taxType === "inter" ? "Inter-State (IGST)" : "Intra-State (CGST + SGST)";
+
     const discount =
       parseFloat(document.getElementById("edit-discount-input").value) || 0;
     const otherCharges =
       parseFloat(document.getElementById("edit-other-charges-input").value) ||
       0;
 
-    const grandTotal =
+    const preRoundTotal =
       grandSubtotal +
       totalCgst +
       totalSgst +
-      roundoff +
+      totalIgst +
       otherCharges -
       discount;
+
+    const roundoffInput = document.getElementById("edit-roundoff-input");
+    if (autoRoundOff) {
+      roundoffInput.value = computeAutoRoundOff(preRoundTotal).toFixed(2);
+    }
+    const roundoff = parseFloat(roundoffInput.value) || 0;
+
+    const grandTotal = preRoundTotal + roundoff;
     document.getElementById("edit-grand-total-input").value =
       grandTotal.toFixed(2);
   }
@@ -1682,13 +2153,14 @@ async function renderEditForm(
   } else {
     items.forEach((it) => createEditMainItemCard(it));
   }
+  recalculateEditFinancials(false);
 
   document
     .getElementById("edit-add-main-item-btn")
     .addEventListener("click", () => createEditMainItemCard());
   document
     .getElementById("edit-roundoff-input")
-    .addEventListener("input", recalculateEditFinancials);
+    .addEventListener("input", () => recalculateEditFinancials(false));
   document
     .getElementById("edit-discount-input")
     .addEventListener("input", recalculateEditFinancials);
@@ -1784,6 +2256,20 @@ async function renderEditForm(
         return;
       }
 
+      const editWhStateCodeFinal = document
+        .getElementById("edit-wh-state-code-input")
+        .value.trim();
+      const editPlaceOfSupplyFinal = document
+        .getElementById("edit-place-of-supply-input")
+        .value.trim();
+      const editBuyerStateCodeFinal =
+        getStateCodeByName(editPlaceOfSupplyFinal) ||
+        document.getElementById("edit-buyer-state-code-input").value.trim();
+      const editTaxTypeFinal = computeTaxType(
+        editWhStateCodeFinal,
+        editBuyerStateCodeFinal,
+      );
+
       const payload = {
         client_id,
         invoice_number,
@@ -1797,15 +2283,9 @@ async function renderEditForm(
         reference_number:
           document.getElementById("edit-reference-number-input").value.trim() ||
           null,
+        reference_date:
+          document.getElementById("edit-reference-date-input").value || null,
         subtotal: document.getElementById("edit-subtotal-input").value || 0,
-        tax: (
-          parseFloat(
-            document.getElementById("edit-cgst-amount-input").value || 0,
-          ) +
-          parseFloat(
-            document.getElementById("edit-sgst-amount-input").value || 0,
-          )
-        ).toFixed(2),
         discount: document.getElementById("edit-discount-input").value || 0,
         other_charges:
           document.getElementById("edit-other-charges-input").value || 0,
@@ -1820,9 +2300,20 @@ async function renderEditForm(
         wh_address: document
           .getElementById("edit-wh-address-input")
           .value.trim(),
+        wh_state_name: document
+          .getElementById("edit-wh-state-name-input")
+          .value.trim(),
+        wh_state_code: editWhStateCodeFinal,
         wh_fssai: document.getElementById("edit-wh-fssai-input").value.trim(),
-        wh_bank: document.getElementById("edit-wh-bank-input").value.trim(),
-        wh_ifsc: document.getElementById("edit-wh-ifsc-input").value.trim(),
+        wh_bank_name: document
+          .getElementById("edit-wh-bank-name-input")
+          .value.trim(),
+        wh_account_number: document
+          .getElementById("edit-wh-account-number-input")
+          .value.trim(),
+        wh_branch_ifsc: document
+          .getElementById("edit-wh-ifsc-input")
+          .value.trim(),
         buyer_name: document
           .getElementById("edit-buyer-name-input")
           .value.trim(),
@@ -1841,12 +2332,43 @@ async function renderEditForm(
         buyer_email: document
           .getElementById("edit-buyer-email-input")
           .value.trim(),
+        buyer_state_name: document
+          .getElementById("edit-buyer-state-name-input")
+          .value.trim(),
+        buyer_state_code: editBuyerStateCodeFinal,
+        place_of_supply: editPlaceOfSupplyFinal,
         other_ref: document.getElementById("edit-other-ref-input").value.trim(),
+        tax_type: editTaxTypeFinal,
         cgst_amount:
           document.getElementById("edit-cgst-amount-input").value || 0,
         sgst_amount:
           document.getElementById("edit-sgst-amount-input").value || 0,
+        igst_amount:
+          document.getElementById("edit-igst-amount-input").value || 0,
         round_off: document.getElementById("edit-roundoff-input").value || 0,
+        buyers_order_no: document
+          .getElementById("edit-buyers-order-no-input")
+          .value.trim(),
+        buyers_order_date:
+          document.getElementById("edit-buyers-order-date-input").value || null,
+        dispatch_doc_no: document
+          .getElementById("edit-dispatch-doc-no-input")
+          .value.trim(),
+        dispatch_through: document
+          .getElementById("edit-dispatch-through-input")
+          .value.trim(),
+        destination: document
+          .getElementById("edit-destination-input")
+          .value.trim(),
+        terms_of_delivery: document
+          .getElementById("edit-terms-of-delivery-input")
+          .value.trim(),
+        delivery_note: document
+          .getElementById("edit-delivery-note-input")
+          .value.trim(),
+        delivery_note_date:
+          document.getElementById("edit-delivery-note-date-input").value ||
+          null,
       };
 
       const saveBtn = document.getElementById("edit-save-btn");
