@@ -2,9 +2,8 @@ import { Api } from "../../api.js";
 
 // =========================================================================
 // BILLING MODULE — single-file view (List, Create, Details+Edit).
-// Manual entry with helper calculations (Subtotal, Row Amount, CGST/SGST, Round Off).
-// Sub-screens are swapped into the same container directly rather than
-// through app.js routing, so there's only one sidebar entry: "Billing".
+// Hierarchical Billing Entry (Main Item -> Sub-Descriptions).
+// Automatically groups taxes by HSN/SAC codes for Tally-style invoices.
 // =========================================================================
 
 let jsPdfLoadPromise = null;
@@ -89,22 +88,6 @@ function numberToWordsIndian(num) {
     str += " and " + inWords(paise) + " paise";
   }
   return str + " Only";
-}
-
-/**
- * Fetch HSN/SAC list helper
- */
-async function fetchHsnCodes() {
-  try {
-    const resp = await fetch("/api/hsn-sac", {
-      headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-    });
-    if (!resp.ok) return [];
-    const data = await resp.json();
-    return data.codes || [];
-  } catch (e) {
-    return [];
-  }
 }
 
 /**
@@ -314,7 +297,13 @@ async function renderList(container, currentUser) {
 // SCREEN 2: CREATE BILL
 // =========================================================================
 async function renderCreate(container, currentUser) {
-  let hsnSacList = await fetchHsnCodes();
+  let clientsData = [];
+
+  try {
+    clientsData = await Api.clients.list();
+  } catch (err) {
+    // Non-fatal
+  }
 
   container.innerHTML = `
     <div class="container-fluid p-0 p-sm-4 animate-fade-in" style="max-width: 1100px; margin: 0 auto;">
@@ -368,6 +357,54 @@ async function renderCreate(container, currentUser) {
 
         ${sectionCard(
           "2",
+          "Buyer (Bill To) - Prefilled from Client DB",
+          `
+          <div class="row g-3 mb-3">
+            <div class="col-md-12">
+              <label class="form-label small fw-semibold text-muted">Select Client *</label>
+              <select id="client-select-input" class="form-select bg-light" required>
+                <option value="">Select a client...</option>
+                ${clientsData
+                  .filter((c) => c.status === "active")
+                  .map(
+                    (c) =>
+                      `<option value="${c.id}">${escapeHtml(c.name)} (${escapeHtml(c.code)})</option>`,
+                  )
+                  .join("")}
+              </select>
+            </div>
+          </div>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold text-muted">Buyer Name</label>
+              <input type="text" id="buyer-name-input" class="form-control bg-light">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold text-muted">Buyer GSTIN / UIN</label>
+              <input type="text" id="buyer-gstin-input" class="form-control bg-light">
+            </div>
+            <div class="col-md-12">
+              <label class="form-label small fw-semibold text-muted">Buyer Address</label>
+              <input type="text" id="buyer-address-input" class="form-control bg-light">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold text-muted">Contact Person</label>
+              <input type="text" id="buyer-contact-input" class="form-control bg-light">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold text-muted">Phone</label>
+              <input type="text" id="buyer-phone-input" class="form-control bg-light">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold text-muted">Email</label>
+              <input type="email" id="buyer-email-input" class="form-control bg-light">
+            </div>
+          </div>
+        `,
+        )}
+
+        ${sectionCard(
+          "3",
           "Invoice Information",
           `
           <div class="row g-3">
@@ -396,7 +433,7 @@ async function renderCreate(container, currentUser) {
         )}
 
         ${sectionCard(
-          "3",
+          "4",
           "Billing Period",
           `
           <div class="row g-3">
@@ -413,44 +450,13 @@ async function renderCreate(container, currentUser) {
         )}
 
         ${sectionCard(
-          "4",
-          "Buyer (Bill To)",
-          `
-          <label class="form-label small fw-semibold text-muted">Select Client *</label>
-          <select id="client-select-input" class="form-select bg-light" required>
-            <option value="">Loading clients...</option>
-          </select>
-        `,
-        )}
-
-        ${sectionCard(
           "5",
-          "Description of Goods & Services",
+          "Description of Goods & Services (Main Items & Sub-Descriptions)",
           `
-          <div class="table-responsive">
-            <table class="table table-sm align-middle mb-2" id="charges-table">
-              <thead class="table-light small text-uppercase text-secondary">
-                <tr>
-                  <th style="min-width:250px;">Description of Goods and Services</th>
-                  <th style="width:130px;">HSN/SAC</th>
-                  <th style="width:100px;">Quantity</th>
-                  <th style="width:90px;">per</th>
-                  <th style="width:110px;">Rate</th>
-                  <th style="width:120px;">Amount</th>
-                  <th style="width:40px;"></th>
-                </tr>
-              </thead>
-              <tbody id="charges-table-body"></tbody>
-            </table>
-          </div>
-          <div class="d-flex justify-content-between align-items-center">
-            <button type="button" id="add-charge-row-btn" class="btn btn-light btn-sm border text-muted">
-              <i class="bi bi-plus-lg me-1"></i> Add Row
-            </button>
-            <button type="button" id="open-hsn-modal-btn" class="btn btn-outline-primary btn-sm fw-semibold">
-              <i class="bi bi-plus-circle me-1"></i> + Create New HSN/SAC
-            </button>
-          </div>
+          <div id="main-items-container"></div>
+          <button type="button" id="add-main-item-btn" class="btn btn-outline-primary btn-sm fw-semibold mt-2">
+            <i class="bi bi-plus-lg me-1"></i> Add Main Item Category
+          </button>
         `,
         )}
 
@@ -461,23 +467,15 @@ async function renderCreate(container, currentUser) {
           <div class="row g-3">
             <div class="col-md-4">
               <label class="form-label small fw-semibold text-muted">Subtotal (Auto-Calculated)</label>
-              <input type="number" step="0.01" id="subtotal-input" class="form-control bg-light fw-bold" readonly>
+              <input type="number" step="0.01" id="subtotal-input" class="form-control bg-light fw-bold" readonly value="0.00">
             </div>
             <div class="col-md-4">
-              <label class="form-label small fw-semibold text-muted">CGST Rate (%)</label>
-              <input type="number" step="0.01" id="cgst-rate-input" class="form-control bg-light" value="9">
+              <label class="form-label small fw-semibold text-muted">CGST Amount (Auto-Calculated)</label>
+              <input type="number" step="0.01" id="cgst-amount-input" class="form-control bg-light" readonly value="0.00">
             </div>
             <div class="col-md-4">
-              <label class="form-label small fw-semibold text-muted">CGST Amount</label>
-              <input type="number" step="0.01" id="cgst-amount-input" class="form-control bg-light" readonly>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label small fw-semibold text-muted">SGST Rate (%)</label>
-              <input type="number" step="0.01" id="sgst-rate-input" class="form-control bg-light" value="9">
-            </div>
-            <div class="col-md-4">
-              <label class="form-label small fw-semibold text-muted">SGST Amount</label>
-              <input type="number" step="0.01" id="sgst-amount-input" class="form-control bg-light" readonly>
+              <label class="form-label small fw-semibold text-muted">SGST Amount (Auto-Calculated)</label>
+              <input type="number" step="0.01" id="sgst-amount-input" class="form-control bg-light" readonly value="0.00">
             </div>
             <div class="col-md-4">
               <label class="form-label small fw-semibold text-muted">Round Off (+ / -)</label>
@@ -493,7 +491,7 @@ async function renderCreate(container, currentUser) {
             </div>
             <div class="col-md-4">
               <label class="form-label small fw-semibold text-muted">Grand Total</label>
-              <input type="number" step="0.01" id="grand-total-input" class="form-control bg-light fw-bold fs-5 text-primary" readonly>
+              <input type="number" step="0.01" id="grand-total-input" class="form-control bg-light fw-bold fs-5 text-primary" readonly value="0.00">
             </div>
           </div>
         `,
@@ -525,40 +523,13 @@ async function renderCreate(container, currentUser) {
 
       </form>
     </div>
-
-    <!-- Inline HSN/SAC Creation Modal -->
-    <div class="modal fade" id="hsnModal" tabindex="-1">
-      <div class="modal-dialog modal-dialog-centered modal-sm">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h6 class="modal-title fw-bold">Create HSN/SAC Code</h6>
-            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-          </div>
-          <div class="modal-body">
-            <div id="hsn-modal-alert"></div>
-            <div class="mb-3">
-              <label class="form-label small fw-semibold">HSN/SAC Code *</label>
-              <input type="text" id="new-hsn-code" class="form-control form-control-sm" placeholder="e.g. 992971">
-            </div>
-            <div class="mb-3">
-              <label class="form-label small fw-semibold">Tax Percentage (%) *</label>
-              <input type="number" step="0.01" id="new-hsn-tax" class="form-control form-control-sm" placeholder="e.g. 18">
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-            <button type="button" id="save-hsn-btn" class="btn btn-primary btn-sm fw-semibold">Save Code</button>
-          </div>
-        </div>
-      </div>
-    </div>
   `;
 
   const alertAnchor = document.getElementById("billing-form-alert-anchor");
   const form = document.getElementById("billing-create-form");
   const clientSelect = document.getElementById("client-select-input");
-  const chargesBody = document.getElementById("charges-table-body");
-  const addRowBtn = document.getElementById("add-charge-row-btn");
+  const mainContainer = document.getElementById("main-items-container");
+  const addMainBtn = document.getElementById("add-main-item-btn");
   const submitBtn = document.getElementById("submit-bill-btn");
   const attachmentsInput = document.getElementById("attachments-input");
 
@@ -569,84 +540,171 @@ async function renderCreate(container, currentUser) {
     .getElementById("cancel-create-btn")
     .addEventListener("click", () => renderList(container, currentUser));
 
-  try {
-    const clients = await Api.clients.list();
-    const activeClients = clients.filter((c) => c.status === "active");
-    clientSelect.innerHTML =
-      `<option value="">Select a client...</option>` +
-      activeClients
-        .map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`)
-        .join("");
-  } catch (err) {
-    clientSelect.innerHTML = `<option value="">Failed to load clients</option>`;
-  }
+  // Auto pre-fill buyer information when client is selected
+  clientSelect.addEventListener("change", () => {
+    const selectedId = clientSelect.value;
+    const client = clientsData.find((c) => c.id === selectedId);
+    if (client) {
+      document.getElementById("buyer-name-input").value = client.name || "";
+      document.getElementById("buyer-gstin-input").value = client.gstin || "";
+      document.getElementById("buyer-address-input").value =
+        client.address || "";
+      document.getElementById("buyer-contact-input").value =
+        client.contact_person || "";
+      document.getElementById("buyer-phone-input").value = client.phone || "";
+      document.getElementById("buyer-email-input").value = client.email || "";
+    }
+  });
 
-  function renderHsnOptions(selectedCode = "") {
-    return (
-      `<option value="">None</option>` +
-      hsnSacList
-        .map(
-          (h) =>
-            `<option value="${escapeHtml(h.code)}" data-tax="${h.tax_percentage}" ${
-              h.code === selectedCode ? "selected" : ""
-            }>${escapeHtml(h.code)} (${h.tax_percentage}%)</option>`,
-        )
-        .join("")
-    );
-  }
+  let mainItemCount = 0;
 
-  function addChargeRowDynamic(tbody, prefill = null) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td><textarea class="form-control form-control-sm charge-description" rows="2" placeholder="Main title or detail line...">${prefill ? escapeHtml(prefill.description || "") : ""}</textarea></td>
-      <td><select class="form-select form-select-sm charge-hsn">${renderHsnOptions(prefill ? prefill.hsn_sac : "")}</select></td>
-      <td><input type="number" step="any" class="form-control form-control-sm charge-quantity" value="${prefill && prefill.quantity !== null && prefill.quantity !== undefined ? prefill.quantity : ""}"></td>
-      <td><input type="text" class="form-control form-control-sm charge-unit" value="${prefill ? escapeHtml(prefill.unit || "") : ""}"></td>
-      <td><input type="number" step="any" class="form-control form-control-sm charge-rate" value="${prefill && prefill.rate !== null && prefill.rate !== undefined ? prefill.rate : ""}"></td>
-      <td><input type="number" step="any" class="form-control form-control-sm charge-amount" value="${prefill && prefill.amount !== null && prefill.amount !== undefined ? prefill.amount : ""}"></td>
-      <td><button type="button" class="btn btn-sm btn-outline-danger remove-charge-row-btn"><i class="bi bi-x"></i></button></td>
+  function createMainItemCard() {
+    mainItemCount++;
+    const cardId = `main-item-${mainItemCount}`;
+    const card = document.createElement("div");
+    card.className = "card border mb-3 shadow-none main-item-card";
+    card.id = cardId;
+
+    card.innerHTML = `
+      <div class="card-header bg-light d-flex justify-content-between align-items-center py-2">
+        <span class="fw-bold text-dark small"><i class="bi bi-folder-fill text-primary me-2"></i>Item Category #${mainItemCount}</span>
+        <button type="button" class="btn btn-sm btn-outline-danger remove-main-item-btn"><i class="bi bi-trash me-1"></i>Remove Category</button>
+      </div>
+      <div class="card-body p-3">
+        <div class="row g-2 mb-3">
+          <div class="col-md-6">
+            <label class="form-label extra-small fw-semibold text-muted">Main Description *</label>
+            <input type="text" class="form-control form-control-sm main-desc-input" placeholder="e.g. Cooling Charges-18%" required>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label extra-small fw-semibold text-muted">HSN/SAC Code *</label>
+            <input type="text" class="form-control form-control-sm hsn-sac-input" placeholder="e.g. 992971" required>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label extra-small fw-semibold text-muted">GST Tax Rate *</label>
+            <select class="form-select form-select-sm tax-rate-select">
+              <option value="18" selected>18% (9% CGST + 9% SGST)</option>
+              <option value="12">12% (6% CGST + 6% SGST)</option>
+              <option value="5">5% (2.5% CGST + 2.5% SGST)</option>
+              <option value="0">0% (Exempted)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="small fw-semibold text-secondary mb-2">Sub-Descriptions / Line Breakdowns</div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-2">
+            <thead class="table-light extra-small text-uppercase text-secondary">
+              <tr>
+                <th style="min-width:200px;">Sub-Description Detail</th>
+                <th style="width:90px;">Quantity</th>
+                <th style="width:80px;">Unit</th>
+                <th style="width:90px;">Rate</th>
+                <th style="width:110px;">Amount</th>
+                <th style="width:40px;"></th>
+              </tr>
+            </thead>
+            <tbody class="sub-items-body"></tbody>
+          </table>
+        </div>
+        <div class="d-flex justify-content-between align-items-center">
+          <button type="button" class="btn btn-light btn-sm border text-muted add-sub-item-btn">
+            <i class="bi bi-plus-lg me-1"></i> Add Sub-Description
+          </button>
+          <div class="small fw-bold">Main Item Total: ₹<span class="main-item-total-display">0.00</span></div>
+        </div>
+      </div>
     `;
 
-    tr.querySelector(".remove-charge-row-btn").addEventListener("click", () => {
+    const subBody = card.querySelector(".sub-items-body");
+
+    card
+      .querySelector(".remove-main-item-btn")
+      .addEventListener("click", () => {
+        if (mainContainer.children.length > 1) {
+          card.remove();
+          recalculateFinancials();
+        }
+      });
+
+    card
+      .querySelector(".add-sub-item-btn")
+      .addEventListener("click", () => addSubItemRow(subBody));
+    card
+      .querySelector(".tax-rate-select")
+      .addEventListener("change", recalculateFinancials);
+
+    mainContainer.appendChild(card);
+    addSubItemRow(subBody);
+  }
+
+  function addSubItemRow(tbody, prefill = null) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><input type="text" class="form-control form-control-sm sub-desc-input" placeholder="e.g. Frozen--18(+/-2) Degree Celsius" value="${prefill ? escapeHtml(prefill.sub_description || "") : ""}"></td>
+      <td><input type="number" step="any" class="form-control form-control-sm sub-qty-input" value="${prefill && prefill.quantity !== null ? prefill.quantity : ""}"></td>
+      <td><input type="text" class="form-control form-control-sm sub-unit-input" placeholder="Pallets" value="${prefill ? escapeHtml(prefill.unit || "") : ""}"></td>
+      <td><input type="number" step="any" class="form-control form-control-sm sub-rate-input" value="${prefill && prefill.rate !== null ? prefill.rate : ""}"></td>
+      <td><input type="number" step="any" class="form-control form-control-sm sub-amount-input" value="${prefill && prefill.amount !== null ? prefill.amount : ""}"></td>
+      <td><button type="button" class="btn btn-sm btn-outline-danger remove-sub-row-btn"><i class="bi bi-x"></i></button></td>
+    `;
+
+    tr.querySelector(".remove-sub-row-btn").addEventListener("click", () => {
       if (tbody.children.length > 1) {
         tr.remove();
-        recalculateSummary();
+        recalculateFinancials();
       }
     });
 
-    const qtyIn = tr.querySelector(".charge-quantity");
-    const rateIn = tr.querySelector(".charge-rate");
-    const amtIn = tr.querySelector(".charge-amount");
+    const qtyIn = tr.querySelector(".sub-qty-input");
+    const rateIn = tr.querySelector(".sub-rate-input");
+    const amtIn = tr.querySelector(".sub-amount-input");
 
-    const autoCalcAmount = () => {
+    const autoCalcSubAmount = () => {
       const q = parseFloat(qtyIn.value);
       const r = parseFloat(rateIn.value);
       if (!isNaN(q) && !isNaN(r)) {
         amtIn.value = (q * r).toFixed(2);
       }
-      recalculateSummary();
+      recalculateFinancials();
     };
 
-    qtyIn.addEventListener("input", autoCalcAmount);
-    rateIn.addEventListener("input", autoCalcAmount);
-    amtIn.addEventListener("input", recalculateSummary);
+    qtyIn.addEventListener("input", autoCalcSubAmount);
+    rateIn.addEventListener("input", autoCalcSubAmount);
+    amtIn.addEventListener("input", recalculateFinancials);
 
     tbody.appendChild(tr);
   }
 
-  function recalculateSummary() {
-    let subtotal = 0;
-    chargesBody.querySelectorAll(".charge-amount").forEach((input) => {
-      const val = parseFloat(input.value);
-      if (!isNaN(val)) subtotal += val;
+  function recalculateFinancials() {
+    let grandSubtotal = 0;
+    let totalCgst = 0;
+    let totalSgst = 0;
+
+    mainContainer.querySelectorAll(".main-item-card").forEach((card) => {
+      let cardSubtotal = 0;
+      card.querySelectorAll(".sub-amount-input").forEach((amtIn) => {
+        const val = parseFloat(amtIn.value);
+        if (!isNaN(val)) cardSubtotal += val;
+      });
+
+      card.querySelector(".main-item-total-display").textContent =
+        cardSubtotal.toFixed(2);
+      grandSubtotal += cardSubtotal;
+
+      const taxRate =
+        parseFloat(card.querySelector(".tax-rate-select").value) || 0;
+      const cgstRate = taxRate / 2;
+      const sgstRate = taxRate / 2;
+
+      totalCgst += (cardSubtotal * cgstRate) / 100;
+      totalSgst += (cardSubtotal * sgstRate) / 100;
     });
 
-    document.getElementById("subtotal-input").value = subtotal.toFixed(2);
+    document.getElementById("subtotal-input").value = grandSubtotal.toFixed(2);
+    document.getElementById("cgst-amount-input").value = totalCgst.toFixed(2);
+    document.getElementById("sgst-amount-input").value = totalSgst.toFixed(2);
 
-    const cgstRate =
-      parseFloat(document.getElementById("cgst-rate-input").value) || 0;
-    const sgstRate =
-      parseFloat(document.getElementById("sgst-rate-input").value) || 0;
     const roundoff =
       parseFloat(document.getElementById("roundoff-input").value) || 0;
     const discount =
@@ -654,88 +712,33 @@ async function renderCreate(container, currentUser) {
     const otherCharges =
       parseFloat(document.getElementById("other-charges-input").value) || 0;
 
-    const cgstAmount = (subtotal * cgstRate) / 100;
-    const sgstAmount = (subtotal * sgstRate) / 100;
-
-    document.getElementById("cgst-amount-input").value = cgstAmount.toFixed(2);
-    document.getElementById("sgst-amount-input").value = sgstAmount.toFixed(2);
-
     const grandTotal =
-      subtotal + cgstAmount + sgstAmount + roundoff + otherCharges - discount;
+      grandSubtotal +
+      totalCgst +
+      totalSgst +
+      roundoff +
+      otherCharges -
+      discount;
     document.getElementById("grand-total-input").value = grandTotal.toFixed(2);
   }
 
-  addRowBtn.addEventListener("click", () => addChargeRowDynamic(chargesBody));
-  addChargeRowDynamic(chargesBody);
+  addMainBtn.addEventListener("click", createMainItemCard);
+  createMainItemCard(); // Initialize with first main category
 
-  document
-    .getElementById("cgst-rate-input")
-    .addEventListener("input", recalculateSummary);
-  document
-    .getElementById("sgst-rate-input")
-    .addEventListener("input", recalculateSummary);
   document
     .getElementById("roundoff-input")
-    .addEventListener("input", recalculateSummary);
+    .addEventListener("input", recalculateFinancials);
   document
     .getElementById("discount-input")
-    .addEventListener("input", recalculateSummary);
+    .addEventListener("input", recalculateFinancials);
   document
     .getElementById("other-charges-input")
-    .addEventListener("input", recalculateSummary);
-
-  // HSN Modal handlers
-  const hsnModalEl = document.getElementById("hsnModal");
-  const hsnModal = new bootstrap.Modal(hsnModalEl);
-
-  document
-    .getElementById("open-hsn-modal-btn")
-    .addEventListener("click", () => hsnModal.show());
-  document
-    .getElementById("save-hsn-btn")
-    .addEventListener("click", async () => {
-      const code = document.getElementById("new-hsn-code").value.trim();
-      const tax = document.getElementById("new-hsn-tax").value;
-      const modalAlert = document.getElementById("hsn-modal-alert");
-
-      if (!code || tax === "") {
-        modalAlert.innerHTML = `<div class="alert alert-warning py-1 small">Please enter Code and Tax %</div>`;
-        return;
-      }
-
-      try {
-        const resp = await fetch("/api/hsn-sac", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
-          },
-          body: JSON.stringify({ code, tax_percentage: tax }),
-        });
-        const resData = await resp.json();
-        if (!resp.ok)
-          throw new Error(resData.error || "Failed to create HSN code");
-
-        hsnSacList = await fetchHsnCodes();
-        chargesBody.querySelectorAll(".charge-hsn").forEach((select) => {
-          const val = select.value;
-          select.innerHTML = renderHsnOptions(val);
-        });
-
-        hsnModal.hide();
-        document.getElementById("new-hsn-code").value = "";
-        document.getElementById("new-hsn-tax").value = "";
-        modalAlert.innerHTML = "";
-      } catch (err) {
-        modalAlert.innerHTML = `<div class="alert alert-danger py-1 small">${escapeHtml(err.message)}</div>`;
-      }
-    });
+    .addEventListener("input", recalculateFinancials);
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     alertAnchor.innerHTML = "";
 
-    const items = collectChargeRowsDynamic(chargesBody);
     const client_id = clientSelect.value;
     const bill_number = document
       .getElementById("bill-number-input")
@@ -750,11 +753,72 @@ async function renderCreate(container, currentUser) {
       );
       return;
     }
+
+    // Collect hierarchical item structure
+    const items = [];
+    let validationFailed = false;
+
+    mainContainer.querySelectorAll(".main-item-card").forEach((card) => {
+      const main_description = card
+        .querySelector(".main-desc-input")
+        .value.trim();
+      const hsn_sac = card.querySelector(".hsn-sac-input").value.trim();
+      const tax_rate = card.querySelector(".tax-rate-select").value;
+
+      if (!main_description || !hsn_sac) {
+        validationFailed = true;
+        return;
+      }
+
+      const sub_items = [];
+      let mainSum = 0;
+
+      card.querySelectorAll("tbody.sub-items-body tr").forEach((tr) => {
+        const sub_description = tr
+          .querySelector(".sub-desc-input")
+          .value.trim();
+        const quantity = tr.querySelector(".sub-qty-input").value;
+        const unit = tr.querySelector(".sub-unit-input").value.trim();
+        const rate = tr.querySelector(".sub-rate-input").value;
+        const amount = tr.querySelector(".sub-amount-input").value;
+
+        const numAmt = amount === "" ? 0 : Number(amount);
+        mainSum += numAmt;
+
+        if (sub_description || quantity || rate || amount) {
+          sub_items.push({
+            sub_description,
+            quantity: quantity === "" ? null : Number(quantity),
+            unit: unit || null,
+            rate: rate === "" ? null : Number(rate),
+            amount: amount === "" ? null : numAmt,
+          });
+        }
+      });
+
+      items.push({
+        main_description,
+        hsn_sac,
+        tax_rate: Number(tax_rate),
+        amount: mainSum,
+        sub_items,
+      });
+    });
+
+    if (validationFailed) {
+      renderAlert(
+        alertAnchor,
+        "warning",
+        "Every main category must have a Description and HSN/SAC code.",
+      );
+      return;
+    }
+
     if (items.length === 0) {
       renderAlert(
         alertAnchor,
         "warning",
-        "At least one billing item is required.",
+        "At least one item category is required.",
       );
       return;
     }
@@ -789,10 +853,18 @@ async function renderCreate(container, currentUser) {
       wh_fssai: document.getElementById("wh-fssai-input").value.trim(),
       wh_bank: document.getElementById("wh-bank-input").value.trim(),
       wh_ifsc: document.getElementById("wh-ifsc-input").value.trim(),
+      buyer_name: document.getElementById("buyer-name-input").value.trim(),
+      buyer_gstin: document.getElementById("buyer-gstin-input").value.trim(),
+      buyer_address: document
+        .getElementById("buyer-address-input")
+        .value.trim(),
+      buyer_contact: document
+        .getElementById("buyer-contact-input")
+        .value.trim(),
+      buyer_phone: document.getElementById("buyer-phone-input").value.trim(),
+      buyer_email: document.getElementById("buyer-email-input").value.trim(),
       other_ref: document.getElementById("other-ref-input").value.trim(),
-      cgst_rate: document.getElementById("cgst-rate-input").value || 0,
       cgst_amount: document.getElementById("cgst-amount-input").value || 0,
-      sgst_rate: document.getElementById("sgst-rate-input").value || 0,
       sgst_amount: document.getElementById("sgst-amount-input").value || 0,
       round_off: document.getElementById("roundoff-input").value || 0,
     };
@@ -1051,35 +1123,33 @@ function renderReadOnlyBody(
 
     ${sectionCard(
       "",
-      "Client",
+      "Buyer (Bill To)",
       `
       <div class="small">
-        <div class="fw-semibold">${escapeHtml(bill.client_name)} <span class="text-muted">(${escapeHtml(bill.client_code || "")})</span></div>
-        ${bill.client_gstin ? `<div class="text-muted">GSTIN: ${escapeHtml(bill.client_gstin)}</div>` : ""}
+        <div class="fw-semibold">${escapeHtml(bill.buyer_name || bill.client_name)} <span class="text-muted">(${escapeHtml(bill.client_code || "")})</span></div>
+        ${bill.buyer_gstin || bill.client_gstin ? `<div class="text-muted">GSTIN: ${escapeHtml(bill.buyer_gstin || bill.client_gstin)}</div>` : ""}
+        ${bill.buyer_address ? `<div class="text-muted">Address: ${escapeHtml(bill.buyer_address)}</div>` : ""}
       </div>
     `,
     )}
 
     ${sectionCard(
       "",
-      "Charges",
+      "Charges Summary",
       `
       <div class="table-responsive">
         <table class="table table-sm mb-0">
           <thead class="table-light small text-uppercase text-secondary">
-            <tr><th>Description</th><th>HSN/SAC</th><th>Quantity</th><th>Unit</th><th>Rate</th><th>Amount</th></tr>
+            <tr><th>Description</th><th>HSN/SAC</th><th class="text-end">Amount</th></tr>
           </thead>
           <tbody>
             ${items
               .map(
                 (it) => `
               <tr>
-                <td style="white-space: pre-line;">${escapeHtml(it.description)}</td>
+                <td style="white-space: pre-line;">${escapeHtml(it.description || it.main_description)}</td>
                 <td>${escapeHtml(it.hsn_sac || "—")}</td>
-                <td>${it.quantity ?? "—"}</td>
-                <td>${escapeHtml(it.unit || "—")}</td>
-                <td>${it.rate ?? "—"}</td>
-                <td>${it.amount ?? "—"}</td>
+                <td class="text-end fw-semibold">${formatMoney(it.amount)}</td>
               </tr>
             `,
               )
@@ -1096,10 +1166,10 @@ function renderReadOnlyBody(
       `
       <div class="row g-3 small">
         <div class="col-md-3"><span class="text-muted d-block">Subtotal</span><span class="fw-semibold">${formatMoney(bill.subtotal)}</span></div>
-        <div class="col-md-3"><span class="text-muted d-block">Tax</span><span class="fw-semibold">${formatMoney(bill.tax)}</span></div>
-        <div class="col-md-3"><span class="text-muted d-block">Discount</span><span class="fw-semibold">${formatMoney(bill.discount)}</span></div>
+        <div class="col-md-3"><span class="text-muted d-block">Tax (CGST + SGST)</span><span class="fw-semibold">${formatMoney(bill.tax)}</span></div>
+        <div class="col-md-3"><span class="text-muted d-block">Round Off</span><span class="fw-semibold">${formatMoney(bill.round_off)}</span></div>
         <div class="col-md-3"><span class="text-muted d-block">Other Charges</span><span class="fw-semibold">${formatMoney(bill.other_charges)}</span></div>
-        <div class="col-md-4"><span class="text-muted d-block">Grand Total</span><span class="fw-bold fs-5">${formatMoney(bill.grand_total)}</span></div>
+        <div class="col-md-4"><span class="text-muted d-block">Grand Total</span><span class="fw-bold fs-5 text-primary">${formatMoney(bill.grand_total)}</span></div>
       </div>
     `,
     )}
@@ -1200,7 +1270,10 @@ async function renderEditForm(
   attachments,
   billingId,
 ) {
-  let hsnSacList = await fetchHsnCodes();
+  let clientsData = [];
+  try {
+    clientsData = await Api.clients.list();
+  } catch (e) {}
 
   bodyEl.innerHTML = `
     <form id="billing-edit-form" novalidate>
@@ -1232,6 +1305,54 @@ async function renderEditForm(
           <div class="col-md-4">
             <label class="form-label small fw-semibold text-muted">Branch & IFSC Code</label>
             <input type="text" id="edit-wh-ifsc-input" class="form-control bg-light" value="${escapeHtml(bill.wh_ifsc || "")}">
+          </div>
+        </div>
+      `,
+      )}
+
+      ${sectionCard(
+        "",
+        "Buyer (Bill To) - Prefilled from Client DB",
+        `
+        <div class="row g-3 mb-3">
+          <div class="col-md-12">
+            <label class="form-label small fw-semibold text-muted">Select Client *</label>
+            <select id="edit-client-select-input" class="form-select bg-light" required>
+              <option value="">Select a client...</option>
+              ${clientsData
+                .filter((c) => c.status === "active" || c.id === bill.client_id)
+                .map(
+                  (c) =>
+                    `<option value="${c.id}" ${c.id === bill.client_id ? "selected" : ""}>${escapeHtml(c.name)} (${escapeHtml(c.code)})</option>`,
+                )
+                .join("")}
+            </select>
+          </div>
+        </div>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label small fw-semibold text-muted">Buyer Name</label>
+            <input type="text" id="edit-buyer-name-input" class="form-control bg-light" value="${escapeHtml(bill.buyer_name || "")}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small fw-semibold text-muted">Buyer GSTIN / UIN</label>
+            <input type="text" id="edit-buyer-gstin-input" class="form-control bg-light" value="${escapeHtml(bill.buyer_gstin || "")}">
+          </div>
+          <div class="col-md-12">
+            <label class="form-label small fw-semibold text-muted">Buyer Address</label>
+            <input type="text" id="edit-buyer-address-input" class="form-control bg-light" value="${escapeHtml(bill.buyer_address || "")}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold text-muted">Contact Person</label>
+            <input type="text" id="edit-buyer-contact-input" class="form-control bg-light" value="${escapeHtml(bill.buyer_contact || "")}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold text-muted">Phone</label>
+            <input type="text" id="edit-buyer-phone-input" class="form-control bg-light" value="${escapeHtml(bill.buyer_phone || "")}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold text-muted">Email</label>
+            <input type="email" id="edit-buyer-email-input" class="form-control bg-light" value="${escapeHtml(bill.buyer_email || "")}">
           </div>
         </div>
       `,
@@ -1285,37 +1406,11 @@ async function renderEditForm(
 
       ${sectionCard(
         "",
-        "Client",
+        "Description of Goods & Services (Main Items & Sub-Descriptions)",
         `
-        <label class="form-label small fw-semibold text-muted">Select Client *</label>
-        <select id="edit-client-select-input" class="form-select bg-light" required>
-          <option value="">Loading clients...</option>
-        </select>
-      `,
-      )}
-
-      ${sectionCard(
-        "",
-        "Description of Goods & Services",
-        `
-        <div class="table-responsive">
-          <table class="table table-sm align-middle mb-2" id="edit-charges-table">
-            <thead class="table-light small text-uppercase text-secondary">
-              <tr>
-                <th style="min-width:250px;">Description of Goods and Services</th>
-                <th style="width:130px;">HSN/SAC</th>
-                <th style="width:100px;">Quantity</th>
-                <th style="width:90px;">per</th>
-                <th style="width:110px;">Rate</th>
-                <th style="width:120px;">Amount</th>
-                <th style="width:40px;"></th>
-              </tr>
-            </thead>
-            <tbody id="edit-charges-table-body"></tbody>
-          </table>
-        </div>
-        <button type="button" id="edit-add-charge-row-btn" class="btn btn-light btn-sm border text-muted">
-          <i class="bi bi-plus-lg me-1"></i> Add Row
+        <div id="edit-main-items-container"></div>
+        <button type="button" id="edit-add-main-item-btn" class="btn btn-outline-primary btn-sm fw-semibold mt-2">
+          <i class="bi bi-plus-lg me-1"></i> Add Main Item Category
         </button>
       `,
       )}
@@ -1330,16 +1425,8 @@ async function renderEditForm(
             <input type="number" step="0.01" id="edit-subtotal-input" class="form-control bg-light fw-bold" value="${bill.subtotal ?? 0}" readonly>
           </div>
           <div class="col-md-4">
-            <label class="form-label small fw-semibold text-muted">CGST Rate (%)</label>
-            <input type="number" step="0.01" id="edit-cgst-rate-input" class="form-control bg-light" value="${bill.cgst_rate ?? 9}">
-          </div>
-          <div class="col-md-4">
             <label class="form-label small fw-semibold text-muted">CGST Amount</label>
             <input type="number" step="0.01" id="edit-cgst-amount-input" class="form-control bg-light" value="${bill.cgst_amount ?? 0}" readonly>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label small fw-semibold text-muted">SGST Rate (%)</label>
-            <input type="number" step="0.01" id="edit-sgst-rate-input" class="form-control bg-light" value="${bill.sgst_rate ?? 9}">
           </div>
           <div class="col-md-4">
             <label class="form-label small fw-semibold text-muted">SGST Amount</label>
@@ -1383,89 +1470,188 @@ async function renderEditForm(
   `;
 
   const editClientSelect = document.getElementById("edit-client-select-input");
-  const editChargesBody = document.getElementById("edit-charges-table-body");
+  const editMainContainer = document.getElementById(
+    "edit-main-items-container",
+  );
 
-  try {
-    const clients = await Api.clients.list();
-    const activeClients = clients.filter(
-      (c) => c.status === "active" || c.id === bill.client_id,
-    );
-    editClientSelect.innerHTML = activeClients
-      .map(
-        (c) =>
-          `<option value="${c.id}" ${c.id === bill.client_id ? "selected" : ""}>${escapeHtml(c.name)}</option>`,
-      )
-      .join("");
-  } catch (err) {
-    editClientSelect.innerHTML = `<option value="${bill.client_id}">${escapeHtml(bill.client_name)}</option>`;
-  }
+  editClientSelect.addEventListener("change", () => {
+    const selectedId = editClientSelect.value;
+    const client = clientsData.find((c) => c.id === selectedId);
+    if (client) {
+      document.getElementById("edit-buyer-name-input").value =
+        client.name || "";
+      document.getElementById("edit-buyer-gstin-input").value =
+        client.gstin || "";
+      document.getElementById("edit-buyer-address-input").value =
+        client.address || "";
+      document.getElementById("edit-buyer-contact-input").value =
+        client.contact_person || "";
+      document.getElementById("edit-buyer-phone-input").value =
+        client.phone || "";
+      document.getElementById("edit-buyer-email-input").value =
+        client.email || "";
+    }
+  });
 
-  function renderEditHsnOptions(selectedCode = "") {
-    return (
-      `<option value="">None</option>` +
-      hsnSacList
-        .map(
-          (h) =>
-            `<option value="${escapeHtml(h.code)}" data-tax="${h.tax_percentage}" ${
-              h.code === selectedCode ? "selected" : ""
-            }>${escapeHtml(h.code)} (${h.tax_percentage}%)</option>`,
-        )
-        .join("")
-    );
-  }
+  let editMainItemCount = 0;
 
-  function addEditChargeRow(tbody, prefill = null) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td><textarea class="form-control form-control-sm charge-description" rows="2">${prefill ? escapeHtml(prefill.description || "") : ""}</textarea></td>
-      <td><select class="form-select form-select-sm charge-hsn">${renderEditHsnOptions(prefill ? prefill.hsn_sac : "")}</select></td>
-      <td><input type="number" step="any" class="form-control form-control-sm charge-quantity" value="${prefill && prefill.quantity !== null && prefill.quantity !== undefined ? prefill.quantity : ""}"></td>
-      <td><input type="text" class="form-control form-control-sm charge-unit" value="${prefill ? escapeHtml(prefill.unit || "") : ""}"></td>
-      <td><input type="number" step="any" class="form-control form-control-sm charge-rate" value="${prefill && prefill.rate !== null && prefill.rate !== undefined ? prefill.rate : ""}"></td>
-      <td><input type="number" step="any" class="form-control form-control-sm charge-amount" value="${prefill && prefill.amount !== null && prefill.amount !== undefined ? prefill.amount : ""}"></td>
-      <td><button type="button" class="btn btn-sm btn-outline-danger remove-charge-row-btn"><i class="bi bi-x"></i></button></td>
+  function createEditMainItemCard(prefill = null) {
+    editMainItemCount++;
+    const cardId = `edit-main-item-${editMainItemCount}`;
+    const card = document.createElement("div");
+    card.className = "card border mb-3 shadow-none main-item-card";
+    card.id = cardId;
+
+    const taxRate = prefill ? prefill.tax_rate : 18;
+
+    card.innerHTML = `
+      <div class="card-header bg-light d-flex justify-content-between align-items-center py-2">
+        <span class="fw-bold text-dark small"><i class="bi bi-folder-fill text-primary me-2"></i>Item Category #${editMainItemCount}</span>
+        <button type="button" class="btn btn-sm btn-outline-danger remove-main-item-btn"><i class="bi bi-trash me-1"></i>Remove</button>
+      </div>
+      <div class="card-body p-3">
+        <div class="row g-2 mb-3">
+          <div class="col-md-6">
+            <label class="form-label extra-small fw-semibold text-muted">Main Description *</label>
+            <input type="text" class="form-control form-control-sm main-desc-input" value="${escapeHtml(prefill ? prefill.main_description || prefill.description : "")}" required>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label extra-small fw-semibold text-muted">HSN/SAC Code *</label>
+            <input type="text" class="form-control form-control-sm hsn-sac-input" value="${escapeHtml(prefill ? prefill.hsn_sac : "")}" required>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label extra-small fw-semibold text-muted">GST Tax Rate *</label>
+            <select class="form-select form-select-sm tax-rate-select">
+              <option value="18" ${taxRate == 18 ? "selected" : ""}>18% (9% CGST + 9% SGST)</option>
+              <option value="12" ${taxRate == 12 ? "selected" : ""}>12% (6% CGST + 6% SGST)</option>
+              <option value="5"  ${taxRate == 5 ? "selected" : ""}>5% (2.5% CGST + 2.5% SGST)</option>
+              <option value="0"  ${taxRate == 0 ? "selected" : ""}>0% (Exempted)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="small fw-semibold text-secondary mb-2">Sub-Descriptions / Line Breakdowns</div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-2">
+            <thead class="table-light extra-small text-uppercase text-secondary">
+              <tr>
+                <th style="min-width:200px;">Sub-Description Detail</th>
+                <th style="width:90px;">Quantity</th>
+                <th style="width:80px;">Unit</th>
+                <th style="width:90px;">Rate</th>
+                <th style="width:110px;">Amount</th>
+                <th style="width:40px;"></th>
+              </tr>
+            </thead>
+            <tbody class="sub-items-body"></tbody>
+          </table>
+        </div>
+        <div class="d-flex justify-content-between align-items-center">
+          <button type="button" class="btn btn-light btn-sm border text-muted add-sub-item-btn">
+            <i class="bi bi-plus-lg me-1"></i> Add Sub-Description
+          </button>
+          <div class="small fw-bold">Main Item Total: ₹<span class="main-item-total-display">0.00</span></div>
+        </div>
+      </div>
     `;
 
-    tr.querySelector(".remove-charge-row-btn").addEventListener("click", () => {
+    const subBody = card.querySelector(".sub-items-body");
+
+    card
+      .querySelector(".remove-main-item-btn")
+      .addEventListener("click", () => {
+        if (editMainContainer.children.length > 1) {
+          card.remove();
+          recalculateEditFinancials();
+        }
+      });
+
+    card
+      .querySelector(".add-sub-item-btn")
+      .addEventListener("click", () => addEditSubItemRow(subBody));
+    card
+      .querySelector(".tax-rate-select")
+      .addEventListener("change", recalculateEditFinancials);
+
+    editMainContainer.appendChild(card);
+
+    if (prefill && prefill.sub_items && prefill.sub_items.length > 0) {
+      prefill.sub_items.forEach((sub) => addEditSubItemRow(subBody, sub));
+    } else {
+      addEditSubItemRow(subBody);
+    }
+  }
+
+  function addEditSubItemRow(tbody, prefill = null) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><input type="text" class="form-control form-control-sm sub-desc-input" value="${prefill ? escapeHtml(prefill.sub_description || "") : ""}"></td>
+      <td><input type="number" step="any" class="form-control form-control-sm sub-qty-input" value="${prefill && prefill.quantity !== null && prefill.quantity !== undefined ? prefill.quantity : ""}"></td>
+      <td><input type="text" class="form-control form-control-sm sub-unit-input" value="${prefill ? escapeHtml(prefill.unit || "") : ""}"></td>
+      <td><input type="number" step="any" class="form-control form-control-sm sub-rate-input" value="${prefill && prefill.rate !== null && prefill.rate !== undefined ? prefill.rate : ""}"></td>
+      <td><input type="number" step="any" class="form-control form-control-sm sub-amount-input" value="${prefill && prefill.amount !== null && prefill.amount !== undefined ? prefill.amount : ""}"></td>
+      <td><button type="button" class="btn btn-sm btn-outline-danger remove-sub-row-btn"><i class="bi bi-x"></i></button></td>
+    `;
+
+    tr.querySelector(".remove-sub-row-btn").addEventListener("click", () => {
       if (tbody.children.length > 1) {
         tr.remove();
-        recalculateEditSummary();
+        recalculateEditFinancials();
       }
     });
 
-    const qtyIn = tr.querySelector(".charge-quantity");
-    const rateIn = tr.querySelector(".charge-rate");
-    const amtIn = tr.querySelector(".charge-amount");
+    const qtyIn = tr.querySelector(".sub-qty-input");
+    const rateIn = tr.querySelector(".sub-rate-input");
+    const amtIn = tr.querySelector(".sub-amount-input");
 
-    const autoCalcAmount = () => {
+    const autoCalcSubAmount = () => {
       const q = parseFloat(qtyIn.value);
       const r = parseFloat(rateIn.value);
       if (!isNaN(q) && !isNaN(r)) {
         amtIn.value = (q * r).toFixed(2);
       }
-      recalculateEditSummary();
+      recalculateEditFinancials();
     };
 
-    qtyIn.addEventListener("input", autoCalcAmount);
-    rateIn.addEventListener("input", autoCalcAmount);
-    amtIn.addEventListener("input", recalculateEditSummary);
+    qtyIn.addEventListener("input", autoCalcSubAmount);
+    rateIn.addEventListener("input", autoCalcSubAmount);
+    amtIn.addEventListener("input", recalculateEditFinancials);
 
     tbody.appendChild(tr);
   }
 
-  function recalculateEditSummary() {
-    let subtotal = 0;
-    editChargesBody.querySelectorAll(".charge-amount").forEach((input) => {
-      const val = parseFloat(input.value);
-      if (!isNaN(val)) subtotal += val;
+  function recalculateEditFinancials() {
+    let grandSubtotal = 0;
+    let totalCgst = 0;
+    let totalSgst = 0;
+
+    editMainContainer.querySelectorAll(".main-item-card").forEach((card) => {
+      let cardSubtotal = 0;
+      card.querySelectorAll(".sub-amount-input").forEach((amtIn) => {
+        const val = parseFloat(amtIn.value);
+        if (!isNaN(val)) cardSubtotal += val;
+      });
+
+      card.querySelector(".main-item-total-display").textContent =
+        cardSubtotal.toFixed(2);
+      grandSubtotal += cardSubtotal;
+
+      const taxRate =
+        parseFloat(card.querySelector(".tax-rate-select").value) || 0;
+      const cgstRate = taxRate / 2;
+      const sgstRate = taxRate / 2;
+
+      totalCgst += (cardSubtotal * cgstRate) / 100;
+      totalSgst += (cardSubtotal * sgstRate) / 100;
     });
 
-    document.getElementById("edit-subtotal-input").value = subtotal.toFixed(2);
+    document.getElementById("edit-subtotal-input").value =
+      grandSubtotal.toFixed(2);
+    document.getElementById("edit-cgst-amount-input").value =
+      totalCgst.toFixed(2);
+    document.getElementById("edit-sgst-amount-input").value =
+      totalSgst.toFixed(2);
 
-    const cgstRate =
-      parseFloat(document.getElementById("edit-cgst-rate-input").value) || 0;
-    const sgstRate =
-      parseFloat(document.getElementById("edit-sgst-rate-input").value) || 0;
     const roundoff =
       parseFloat(document.getElementById("edit-roundoff-input").value) || 0;
     const discount =
@@ -1474,44 +1660,35 @@ async function renderEditForm(
       parseFloat(document.getElementById("edit-other-charges-input").value) ||
       0;
 
-    const cgstAmount = (subtotal * cgstRate) / 100;
-    const sgstAmount = (subtotal * sgstRate) / 100;
-
-    document.getElementById("edit-cgst-amount-input").value =
-      cgstAmount.toFixed(2);
-    document.getElementById("edit-sgst-amount-input").value =
-      sgstAmount.toFixed(2);
-
     const grandTotal =
-      subtotal + cgstAmount + sgstAmount + roundoff + otherCharges - discount;
+      grandSubtotal +
+      totalCgst +
+      totalSgst +
+      roundoff +
+      otherCharges -
+      discount;
     document.getElementById("edit-grand-total-input").value =
       grandTotal.toFixed(2);
   }
 
-  if (items.length === 0) {
-    addEditChargeRow(editChargesBody);
+  if (!items || items.length === 0) {
+    createEditMainItemCard();
   } else {
-    items.forEach((it) => addEditChargeRow(editChargesBody, it));
+    items.forEach((it) => createEditMainItemCard(it));
   }
 
   document
-    .getElementById("edit-add-charge-row-btn")
-    .addEventListener("click", () => addEditChargeRow(editChargesBody));
-  document
-    .getElementById("edit-cgst-rate-input")
-    .addEventListener("input", recalculateEditSummary);
-  document
-    .getElementById("edit-sgst-rate-input")
-    .addEventListener("input", recalculateEditSummary);
+    .getElementById("edit-add-main-item-btn")
+    .addEventListener("click", () => createEditMainItemCard());
   document
     .getElementById("edit-roundoff-input")
-    .addEventListener("input", recalculateEditSummary);
+    .addEventListener("input", recalculateEditFinancials);
   document
     .getElementById("edit-discount-input")
-    .addEventListener("input", recalculateEditSummary);
+    .addEventListener("input", recalculateEditFinancials);
   document
     .getElementById("edit-other-charges-input")
-    .addEventListener("input", recalculateEditSummary);
+    .addEventListener("input", recalculateEditFinancials);
 
   document
     .getElementById("edit-cancel-btn")
@@ -1525,7 +1702,6 @@ async function renderEditForm(
       e.preventDefault();
       alertAnchor.innerHTML = "";
 
-      const editItems = collectChargeRowsDynamic(editChargesBody);
       const client_id = editClientSelect.value;
       const bill_number = document
         .getElementById("edit-bill-number-input")
@@ -1542,11 +1718,62 @@ async function renderEditForm(
         );
         return;
       }
-      if (editItems.length === 0) {
+
+      const updatedItems = [];
+      let validationFailed = false;
+
+      editMainContainer.querySelectorAll(".main-item-card").forEach((card) => {
+        const main_description = card
+          .querySelector(".main-desc-input")
+          .value.trim();
+        const hsn_sac = card.querySelector(".hsn-sac-input").value.trim();
+        const tax_rate = card.querySelector(".tax-rate-select").value;
+
+        if (!main_description || !hsn_sac) {
+          validationFailed = true;
+          return;
+        }
+
+        const sub_items = [];
+        let mainSum = 0;
+
+        card.querySelectorAll("tbody.sub-items-body tr").forEach((tr) => {
+          const sub_description = tr
+            .querySelector(".sub-desc-input")
+            .value.trim();
+          const quantity = tr.querySelector(".sub-qty-input").value;
+          const unit = tr.querySelector(".sub-unit-input").value.trim();
+          const rate = tr.querySelector(".sub-rate-input").value;
+          const amount = tr.querySelector(".sub-amount-input").value;
+
+          const numAmt = amount === "" ? 0 : Number(amount);
+          mainSum += numAmt;
+
+          if (sub_description || quantity || rate || amount) {
+            sub_items.push({
+              sub_description,
+              quantity: quantity === "" ? null : Number(quantity),
+              unit: unit || null,
+              rate: rate === "" ? null : Number(rate),
+              amount: amount === "" ? null : numAmt,
+            });
+          }
+        });
+
+        updatedItems.push({
+          main_description,
+          hsn_sac,
+          tax_rate: Number(tax_rate),
+          amount: mainSum,
+          sub_items,
+        });
+      });
+
+      if (validationFailed) {
         renderAlert(
           alertAnchor,
           "warning",
-          "At least one billing item is required.",
+          "Every main category must have a Description and HSN/SAC code.",
         );
         return;
       }
@@ -1579,7 +1806,7 @@ async function renderEditForm(
         grand_total:
           document.getElementById("edit-grand-total-input").value || 0,
         notes: document.getElementById("edit-notes-input").value.trim() || null,
-        items: editItems,
+        items: updatedItems,
         wh_company_name: document
           .getElementById("edit-wh-company-name-input")
           .value.trim(),
@@ -1590,11 +1817,27 @@ async function renderEditForm(
         wh_fssai: document.getElementById("edit-wh-fssai-input").value.trim(),
         wh_bank: document.getElementById("edit-wh-bank-input").value.trim(),
         wh_ifsc: document.getElementById("edit-wh-ifsc-input").value.trim(),
+        buyer_name: document
+          .getElementById("edit-buyer-name-input")
+          .value.trim(),
+        buyer_gstin: document
+          .getElementById("edit-buyer-gstin-input")
+          .value.trim(),
+        buyer_address: document
+          .getElementById("edit-buyer-address-input")
+          .value.trim(),
+        buyer_contact: document
+          .getElementById("edit-buyer-contact-input")
+          .value.trim(),
+        buyer_phone: document
+          .getElementById("edit-buyer-phone-input")
+          .value.trim(),
+        buyer_email: document
+          .getElementById("edit-buyer-email-input")
+          .value.trim(),
         other_ref: document.getElementById("edit-other-ref-input").value.trim(),
-        cgst_rate: document.getElementById("edit-cgst-rate-input").value || 0,
         cgst_amount:
           document.getElementById("edit-cgst-amount-input").value || 0,
-        sgst_rate: document.getElementById("edit-sgst-rate-input").value || 0,
         sgst_amount:
           document.getElementById("edit-sgst-amount-input").value || 0,
         round_off: document.getElementById("edit-roundoff-input").value || 0,
@@ -1632,30 +1875,6 @@ function sectionCard(badge, title, innerHtml) {
       <div class="card-body p-4">${innerHtml}</div>
     </div>
   `;
-}
-
-function collectChargeRowsDynamic(tbody) {
-  const rows = [];
-  tbody.querySelectorAll("tr").forEach((tr) => {
-    const description = tr.querySelector(".charge-description").value.trim();
-    const hsn_sac = tr.querySelector(".charge-hsn")
-      ? tr.querySelector(".charge-hsn").value
-      : "";
-    const quantity = tr.querySelector(".charge-quantity").value;
-    const unit = tr.querySelector(".charge-unit").value.trim();
-    const rate = tr.querySelector(".charge-rate").value;
-    const amount = tr.querySelector(".charge-amount").value;
-    if (!description && !quantity && !unit && !rate && !amount) return;
-    rows.push({
-      description,
-      hsn_sac: hsn_sac || null,
-      quantity: quantity === "" ? null : Number(quantity),
-      unit: unit || null,
-      rate: rate === "" ? null : Number(rate),
-      amount: amount === "" ? null : Number(amount),
-    });
-  });
-  return rows;
 }
 
 function confirmAction(title, message, onConfirm) {
@@ -1728,7 +1947,7 @@ function escapeHtml(str) {
 }
 
 // =========================================================================
-// FULL TALLY PDF GENERATION — CLIENT-SIDE
+// FULL TALLY PDF GENERATION — CLIENT-SIDE (MULTI-PAGE & HSN AGGREGATION SUPPORT)
 // =========================================================================
 function loadJsPdf() {
   if (window.jspdf && window.jspdf.jsPDF) return Promise.resolve();
@@ -1753,22 +1972,24 @@ async function generateInvoicePdf(currentUser, bill, items) {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 28;
+  const boxWidth = pageWidth - margin * 2;
+
   let y = margin;
 
-  const boxWidth = pageWidth - margin * 2;
-  const boxHeight = pageHeight - margin * 2;
+  function addHeaderAndOuterBox() {
+    doc.setLineWidth(0.75);
+    doc.setDrawColor(0);
+    doc.rect(margin, margin, boxWidth, pageHeight - margin * 2);
 
-  // Outer Box Border
-  doc.setLineWidth(0.75);
-  doc.setDrawColor(0);
-  doc.rect(margin, margin, boxWidth, boxHeight);
+    y = margin;
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.text("TAX INVOICE", pageWidth / 2, y + 12, { align: "center" });
+    y += 18;
+    doc.line(margin, y, pageWidth - margin, y);
+  }
 
-  // Title Row
-  doc.setFontSize(10);
-  doc.setFont("helvetica", "bold");
-  doc.text("TAX INVOICE", pageWidth / 2, y + 12, { align: "center" });
-  y += 18;
-  doc.line(margin, y, pageWidth - margin, y);
+  addHeaderAndOuterBox();
 
   // Header Left Block (Warehouse Info)
   const midX = margin + 260;
@@ -1804,7 +2025,7 @@ async function generateInvoicePdf(currentUser, bill, items) {
   doc.text(`State Name: Telangana, Code: 36`, margin + 6, leftY);
   leftY += 10;
 
-  // Header Right Block (Grid Meta)
+  // Header Right Block Grid
   doc.line(midX, headerTopY, midX, headerTopY + 120);
 
   let rightY = headerTopY;
@@ -1863,16 +2084,21 @@ async function generateInvoicePdf(currentUser, bill, items) {
   doc.setFont("helvetica", "normal");
   doc.text("Buyer (Bill to)", margin + 6, y + 10);
   doc.setFont("helvetica", "bold");
-  doc.text(`${bill.client_name || ""}`, margin + 6, y + 20);
+  doc.text(`${bill.buyer_name || bill.client_name || ""}`, margin + 6, y + 20);
   doc.setFont("helvetica", "normal");
 
   let buyerY = y + 29;
-  if (bill.client_address) {
-    const clientAddr = doc.splitTextToSize(bill.client_address, 245);
-    doc.text(clientAddr, margin + 6, buyerY);
-    buyerY += clientAddr.length * 9;
+  const buyerAddr = bill.buyer_address || bill.client_address;
+  if (buyerAddr) {
+    const clientAddrLines = doc.splitTextToSize(buyerAddr, 245);
+    doc.text(clientAddrLines, margin + 6, buyerY);
+    buyerY += clientAddrLines.length * 9;
   }
-  doc.text(`GSTIN/UIN: ${bill.client_gstin || "—"}`, margin + 6, buyerY);
+  doc.text(
+    `GSTIN/UIN: ${bill.buyer_gstin || bill.client_gstin || "—"}`,
+    margin + 6,
+    buyerY,
+  );
   buyerY += 10;
   doc.text(`State Name: Telangana, Code: 36`, margin + 6, buyerY);
   buyerY += 10;
@@ -1904,118 +2130,190 @@ async function generateInvoicePdf(currentUser, bill, items) {
     { name: "Amount", x: margin + 474, width: boxWidth - 474, align: "right" },
   ];
 
-  const tableHeaderTopY = y;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(7.5);
+  let tableHeaderTopY = y;
 
-  cols.forEach((col, idx) => {
-    let textX = col.x + col.width / 2;
-    if (col.align === "left") textX = col.x + 4;
-    if (col.align === "right") textX = col.x + col.width - 4;
+  function drawTableHeaders() {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    cols.forEach((col, idx) => {
+      let textX = col.x + col.width / 2;
+      if (col.align === "left") textX = col.x + 4;
+      if (col.align === "right") textX = col.x + col.width - 4;
 
-    if (col.name.includes("Description")) {
-      doc.text("Description of", col.x + 4, tableHeaderTopY + 9);
-      doc.text("Goods and Services", col.x + 4, tableHeaderTopY + 18);
-    } else {
-      doc.text(col.name, textX, tableHeaderTopY + 14, { align: col.align });
-    }
+      if (col.name.includes("Description")) {
+        doc.text("Description of", col.x + 4, tableHeaderTopY + 9);
+        doc.text("Goods and Services", col.x + 4, tableHeaderTopY + 18);
+      } else {
+        doc.text(col.name, textX, tableHeaderTopY + 14, { align: col.align });
+      }
 
-    if (idx > 0) {
-      doc.line(col.x, tableHeaderTopY, col.x, tableHeaderTopY + 24);
-    }
-  });
+      if (idx > 0) {
+        doc.line(col.x, tableHeaderTopY, col.x, tableHeaderTopY + 24);
+      }
+    });
 
-  y += 24;
-  doc.line(margin, y, pageWidth - margin, y);
+    y = tableHeaderTopY + 24;
+    doc.line(margin, y, pageWidth - margin, y);
+  }
 
-  // Table Data Rows
-  const tableContentTopY = y;
+  drawTableHeaders();
+
+  let tableContentTopY = y;
   let itemIndex = 1;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.5);
 
-  items.forEach((it) => {
-    const descLines = doc.splitTextToSize(it.description || "", 210);
+  // Track dynamic HSN tax map
+  const hsnMap = {};
+
+  items.forEach((item) => {
+    // Page Break Check for Main Item
+    if (y > pageHeight - margin - 150) {
+      // Draw bottom vertical lines before breaking
+      cols.forEach((col, idx) => {
+        if (idx > 0) doc.line(col.x, tableContentTopY - 24, col.x, y);
+      });
+      doc.addPage();
+      addHeaderAndOuterBox();
+      tableHeaderTopY = y;
+      drawTableHeaders();
+      tableContentTopY = y;
+    }
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
 
     doc.text(String(itemIndex++), cols[0].x + cols[0].width / 2, y + 10, {
       align: "center",
     });
-    doc.text(descLines, cols[1].x + 4, y + 10);
-    doc.text(it.hsn_sac || "992971", cols[2].x + cols[2].width / 2, y + 10, {
+    doc.text(item.main_description || item.description, cols[1].x + 4, y + 10);
+    doc.text(item.hsn_sac || "992971", cols[2].x + cols[2].width / 2, y + 10, {
       align: "center",
     });
 
-    if (
-      it.quantity !== null &&
-      it.quantity !== undefined &&
-      it.quantity !== ""
-    ) {
-      doc.text(String(it.quantity), cols[4].x + cols[4].width - 4, y + 10, {
-        align: "right",
-      });
+    if (item.amount) {
+      doc.text(
+        formatMoney(item.amount),
+        cols[7].x + cols[7].width - 4,
+        y + 10,
+        { align: "right" },
+      );
     }
-    if (it.rate !== null && it.rate !== undefined && it.rate !== "") {
-      doc.text(formatMoney(it.rate), cols[5].x + cols[5].width - 4, y + 10, {
-        align: "right",
-      });
+
+    // Accumulate HSN Tax Map
+    const hsnCode = item.hsn_sac || "992971";
+    const taxRate = Number(item.tax_rate) || 18;
+    const itemAmount = Number(item.amount) || 0;
+
+    if (!hsnMap[hsnCode]) {
+      hsnMap[hsnCode] = { taxable: 0, taxRate };
     }
-    if (it.unit) {
-      doc.text(it.unit, cols[6].x + cols[6].width / 2, y + 10, {
-        align: "center",
-      });
-    }
-    if (it.amount !== null && it.amount !== undefined && it.amount !== "") {
-      doc.text(formatMoney(it.amount), cols[7].x + cols[7].width - 4, y + 10, {
-        align: "right",
+    hsnMap[hsnCode].taxable += itemAmount;
+
+    y += 14;
+
+    // Sub-descriptions rendering
+    if (item.sub_items && item.sub_items.length > 0) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+
+      item.sub_items.forEach((sub) => {
+        // Page Break Check for Sub Item
+        if (y > pageHeight - margin - 150) {
+          cols.forEach((col, idx) => {
+            if (idx > 0) doc.line(col.x, tableContentTopY - 24, col.x, y);
+          });
+          doc.addPage();
+          addHeaderAndOuterBox();
+          tableHeaderTopY = y;
+          drawTableHeaders();
+          tableContentTopY = y;
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(7);
+        }
+
+        if (sub.sub_description) {
+          doc.text(sub.sub_description, cols[1].x + 4, y + 9);
+          y += 11;
+        }
+
+        // Auto-generated breakdown text line
+        if (sub.quantity && sub.rate) {
+          const breakdownStr = `${sub.quantity} ${sub.unit || "Units"} X ${sub.rate}/- Per ${sub.unit || "Unit"}`;
+          doc.text(breakdownStr, cols[1].x + 4, y + 9);
+          y += 11;
+        }
       });
     }
 
-    y += Math.max(16, descLines.length * 9 + 5);
+    y += 4;
   });
 
-  // Calculate taxes and totals
+  // Check Page Break before Summary
+  if (y > pageHeight - margin - 180) {
+    cols.forEach((col, idx) => {
+      if (idx > 0) doc.line(col.x, tableContentTopY - 24, col.x, y);
+    });
+    doc.addPage();
+    addHeaderAndOuterBox();
+    tableHeaderTopY = y;
+    drawTableHeaders();
+    tableContentTopY = y;
+  }
+
+  // Calculate totals and CGST / SGST breakdown
   const subtotal = Number(bill.subtotal) || 0;
-  const cgstRate = Number(bill.cgst_rate) || 9;
-  const cgstAmount = Number(bill.cgst_amount) || (subtotal * cgstRate) / 100;
-  const sgstRate = Number(bill.sgst_rate) || 9;
-  const sgstAmount = Number(bill.sgst_amount) || (subtotal * sgstRate) / 100;
+
+  let totalCgst = 0;
+  let totalSgst = 0;
+
+  Object.keys(hsnMap).forEach((code) => {
+    const entry = hsnMap[code];
+    const cgst = (entry.taxable * (entry.taxRate / 2)) / 100;
+    const sgst = (entry.taxable * (entry.taxRate / 2)) / 100;
+    entry.cgst = cgst;
+    entry.sgst = sgst;
+    totalCgst += cgst;
+    totalSgst += sgst;
+  });
+
   const roundoff = Number(bill.round_off) || 0;
   const grandTotal =
-    Number(bill.grand_total) || subtotal + cgstAmount + sgstAmount + roundoff;
+    Number(bill.grand_total) || subtotal + totalCgst + totalSgst + roundoff;
 
-  // Subtotal line row
+  // Render Subtotal & Taxes right under items list
   doc.setFont("helvetica", "bold");
-  doc.text(formatMoney(subtotal), cols[7].x + cols[7].width - 4, y + 10, {
-    align: "right",
-  });
-  y += 16;
+  doc.setFontSize(7.5);
 
-  // Tax Rows
-  doc.setFont("helvetica", "normal");
   doc.text("CGST", cols[1].x + 4, y + 10);
-  doc.text(formatMoney(cgstAmount), cols[7].x + cols[7].width - 4, y + 10, {
+  doc.text(formatMoney(totalCgst), cols[7].x + cols[7].width - 4, y + 10, {
     align: "right",
   });
-  y += 14;
+  y += 12;
 
   doc.text("SGST", cols[1].x + 4, y + 10);
-  doc.text(formatMoney(sgstAmount), cols[7].x + cols[7].width - 4, y + 10, {
+  doc.text(formatMoney(totalSgst), cols[7].x + cols[7].width - 4, y + 10, {
     align: "right",
   });
-  y += 14;
+  y += 12;
 
-  doc.text("Less: ROUND OFF", cols[1].x + 4, y + 10);
-  doc.text(
-    `${roundoff < 0 ? "(-)" : ""}${formatMoney(Math.abs(roundoff))}`,
-    cols[7].x + cols[7].width - 4,
-    y + 10,
-    { align: "right" },
-  );
-  y += 16;
+  if (roundoff !== 0) {
+    doc.text("Less: ROUND OFF", cols[1].x + 4, y + 10);
+    doc.text(
+      `${roundoff < 0 ? "(-)" : ""}${formatMoney(Math.abs(roundoff))}`,
+      cols[7].x + cols[7].width - 4,
+      y + 10,
+      { align: "right" },
+    );
+    y += 12;
+  }
 
-  const tableBottomY = Math.max(y, margin + 480);
+  // Draw Vertical Table Column Lines
+  let tableBottomY = Math.max(y + 10, margin + 450);
 
-  // Draw Vertical Table Column Dividers down to table bottom
+  // If we pushed too far, bound it to the page
+  if (tableBottomY > pageHeight - margin - 220) {
+    tableBottomY = y + 10;
+  }
+
   cols.forEach((col, idx) => {
     if (idx > 0) {
       doc.line(col.x, tableContentTopY - 24, col.x, tableBottomY);
@@ -2027,6 +2325,7 @@ async function generateInvoicePdf(currentUser, bill, items) {
 
   // Grand Total Row
   doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
   doc.text("Total", cols[1].x + 4, y + 12);
   doc.text(
     `Rs. ${formatMoney(grandTotal)}`,
@@ -2034,7 +2333,7 @@ async function generateInvoicePdf(currentUser, bill, items) {
     y + 12,
     { align: "right" },
   );
-  y += 18;
+  y += 16;
   doc.line(margin, y, pageWidth - margin, y);
 
   // Amount Chargeable in Words
@@ -2049,16 +2348,16 @@ async function generateInvoicePdf(currentUser, bill, items) {
   // HSN/SAC Tax Summary Table
   const hsnTableTopY = y;
   const hsnCols = [
-    { name: "HSN/SAC", x: margin, width: 75, align: "center" },
-    { name: "Taxable Value", x: margin + 75, width: 90, align: "right" },
-    { name: "CGST Rate", x: margin + 165, width: 55, align: "center" },
-    { name: "CGST Amount", x: margin + 220, width: 80, align: "right" },
-    { name: "SGST Rate", x: margin + 300, width: 55, align: "center" },
-    { name: "SGST Amount", x: margin + 355, width: 80, align: "right" },
+    { name: "HSN/SAC", x: margin, width: 70, align: "center" },
+    { name: "Taxable Value", x: margin + 70, width: 85, align: "right" },
+    { name: "CGST Rate", x: margin + 155, width: 55, align: "center" },
+    { name: "CGST Amount", x: margin + 210, width: 80, align: "right" },
+    { name: "SGST Rate", x: margin + 290, width: 55, align: "center" },
+    { name: "SGST Amount", x: margin + 345, width: 80, align: "right" },
     {
       name: "Total Tax Amount",
-      x: margin + 435,
-      width: boxWidth - 435,
+      x: margin + 425,
+      width: boxWidth - 425,
       align: "right",
     },
   ];
@@ -2068,110 +2367,138 @@ async function generateInvoicePdf(currentUser, bill, items) {
     let textX = col.x + col.width / 2;
     if (col.align === "right") textX = col.x + col.width - 4;
     doc.text(col.name, textX, hsnTableTopY + 10, { align: col.align });
-    if (idx > 0) doc.line(col.x, hsnTableTopY, col.x, hsnTableTopY + 32);
+    if (idx > 0) doc.line(col.x, hsnTableTopY, col.x, hsnTableTopY + 30);
   });
 
-  y += 16;
+  y += 14;
   doc.line(margin, y, pageWidth - margin, y);
 
-  // HSN Summary Data Row
-  const totalTax = cgstAmount + sgstAmount;
+  let hsnTaxSum = 0;
   doc.setFont("helvetica", "normal");
-  doc.text("992971", hsnCols[0].x + hsnCols[0].width / 2, y + 10, {
-    align: "center",
-  });
-  doc.text(formatMoney(subtotal), hsnCols[1].x + hsnCols[1].width - 4, y + 10, {
-    align: "right",
-  });
-  doc.text(`${cgstRate}%`, hsnCols[2].x + hsnCols[2].width / 2, y + 10, {
-    align: "center",
-  });
-  doc.text(
-    formatMoney(cgstAmount),
-    hsnCols[3].x + hsnCols[3].width - 4,
-    y + 10,
-    { align: "right" },
-  );
-  doc.text(`${sgstRate}%`, hsnCols[4].x + hsnCols[4].width / 2, y + 10, {
-    align: "center",
-  });
-  doc.text(
-    formatMoney(sgstAmount),
-    hsnCols[5].x + hsnCols[5].width - 4,
-    y + 10,
-    { align: "right" },
-  );
-  doc.text(formatMoney(totalTax), hsnCols[6].x + hsnCols[6].width - 4, y + 10, {
-    align: "right",
+
+  Object.keys(hsnMap).forEach((code) => {
+    const row = hsnMap[code];
+    const rowTaxTotal = row.cgst + row.sgst;
+    hsnTaxSum += rowTaxTotal;
+
+    doc.text(code, hsnCols[0].x + hsnCols[0].width / 2, y + 10, {
+      align: "center",
+    });
+    doc.text(
+      formatMoney(row.taxable),
+      hsnCols[1].x + hsnCols[1].width - 4,
+      y + 10,
+      { align: "right" },
+    );
+    doc.text(
+      `${row.taxRate / 2}%`,
+      hsnCols[2].x + hsnCols[2].width / 2,
+      y + 10,
+      { align: "center" },
+    );
+    doc.text(
+      formatMoney(row.cgst),
+      hsnCols[3].x + hsnCols[3].width - 4,
+      y + 10,
+      { align: "right" },
+    );
+    doc.text(
+      `${row.taxRate / 2}%`,
+      hsnCols[4].x + hsnCols[4].width / 2,
+      y + 10,
+      { align: "center" },
+    );
+    doc.text(
+      formatMoney(row.sgst),
+      hsnCols[5].x + hsnCols[5].width - 4,
+      y + 10,
+      { align: "right" },
+    );
+    doc.text(
+      formatMoney(rowTaxTotal),
+      hsnCols[6].x + hsnCols[6].width - 4,
+      y + 10,
+      { align: "right" },
+    );
+
+    y += 14;
   });
 
-  y += 16;
   doc.line(margin, y, pageWidth - margin, y);
 
-  // HSN Summary Total Row
+  // HSN Table Total Summary
   doc.setFont("helvetica", "bold");
   doc.text("Total", hsnCols[0].x + 6, y + 10);
   doc.text(formatMoney(subtotal), hsnCols[1].x + hsnCols[1].width - 4, y + 10, {
     align: "right",
   });
   doc.text(
-    formatMoney(cgstAmount),
+    formatMoney(totalCgst),
     hsnCols[3].x + hsnCols[3].width - 4,
     y + 10,
     { align: "right" },
   );
   doc.text(
-    formatMoney(sgstAmount),
+    formatMoney(totalSgst),
     hsnCols[5].x + hsnCols[5].width - 4,
     y + 10,
     { align: "right" },
   );
-  doc.text(formatMoney(totalTax), hsnCols[6].x + hsnCols[6].width - 4, y + 10, {
-    align: "right",
-  });
+  doc.text(
+    formatMoney(hsnTaxSum),
+    hsnCols[6].x + hsnCols[6].width - 4,
+    y + 10,
+    { align: "right" },
+  );
 
-  y += 16;
+  y += 14;
   doc.line(margin, y, pageWidth - margin, y);
 
   // Tax Amount in Words
   doc.setFont("helvetica", "normal");
   doc.text("Tax Amount (in words):", margin + 6, y + 10);
   doc.setFont("helvetica", "bold");
-  doc.text(numberToWordsIndian(totalTax), margin + 100, y + 10);
+  doc.text(numberToWordsIndian(hsnTaxSum), margin + 100, y + 10);
 
   y += 16;
   doc.line(margin, y, pageWidth - margin, y);
+
+  // Check Page Break before Footer
+  if (y > pageHeight - margin - 80) {
+    doc.addPage();
+    addHeaderAndOuterBox();
+  }
 
   // Legal Declarations & Bank Details Footer
   const footerTopY = y;
   doc.setFont("helvetica", "normal");
   doc.text(`Company's PAN: AAACF5063D`, margin + 6, footerTopY + 10);
   doc.setFont("helvetica", "bold");
-  doc.text("Declaration", margin + 6, footerTopY + 22);
+  doc.text("Declaration", margin + 6, footerTopY + 20);
   doc.setFont("helvetica", "normal");
   doc.text(
     "We declare that this invoice shows the actual price of the goods",
     margin + 6,
-    footerTopY + 32,
+    footerTopY + 30,
   );
   doc.text(
     "described and that all particulars are true and correct.",
     margin + 6,
-    footerTopY + 42,
+    footerTopY + 40,
   );
 
   doc.setFont("helvetica", "bold");
-  doc.text("Company's Bank Details", margin + 6, footerTopY + 56);
+  doc.text("Company's Bank Details", margin + 6, footerTopY + 54);
   doc.setFont("helvetica", "normal");
   doc.text(
     `Bank Name: ${bill.wh_bank || "KOTAK MAHINDRA BANK 05532970000011"}`,
     margin + 6,
-    footerTopY + 66,
+    footerTopY + 64,
   );
   doc.text(
     `Branch & IFS Code: ${bill.wh_ifsc || "Dilsukhnagar & KKBK0007446"}`,
     margin + 6,
-    footerTopY + 76,
+    footerTopY + 74,
   );
 
   // Authorised Signatory Block
