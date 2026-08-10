@@ -2,12 +2,110 @@ import { Api } from "../../api.js";
 
 // =========================================================================
 // BILLING MODULE — single-file view (List, Create, Details+Edit).
-// Manual entry only. Nothing here calculates charges automatically.
+// Manual entry with helper calculations (Subtotal, Row Amount, CGST/SGST, Round Off).
 // Sub-screens are swapped into the same container directly rather than
 // through app.js routing, so there's only one sidebar entry: "Billing".
 // =========================================================================
 
 let jsPdfLoadPromise = null;
+
+/**
+ * Number to Words converter (Indian Currency System)
+ */
+function numberToWordsIndian(num) {
+  if (num === null || num === undefined || isNaN(num))
+    return "Zero Rupees Only";
+  let n = Math.floor(Math.abs(num));
+  let paise = Math.round((Math.abs(num) - n) * 100);
+
+  if (n === 0 && paise === 0) return "Zero Rupees Only";
+
+  const a = [
+    "",
+    "One",
+    "Two",
+    "Three",
+    "Four",
+    "Five",
+    "Six",
+    "Seven",
+    "Eight",
+    "Nine",
+    "Ten",
+    "Eleven",
+    "Twelve",
+    "Thirteen",
+    "Fourteen",
+    "Fifteen",
+    "Sixteen",
+    "Seventeen",
+    "Eighteen",
+    "Nineteen",
+  ];
+  const b = [
+    "",
+    "",
+    "Twenty",
+    "Thirty",
+    "Forty",
+    "Fifty",
+    "Sixty",
+    "Seventy",
+    "Eighty",
+    "Ninety",
+  ];
+
+  function inWords(val) {
+    if (val < 20) return a[val];
+    if (val < 100)
+      return b[Math.floor(val / 10)] + (val % 10 ? " " + a[val % 10] : "");
+    if (val < 1000)
+      return (
+        a[Math.floor(val / 100)] +
+        " Hundred" +
+        (val % 100 ? " " + inWords(val % 100) : "")
+      );
+    if (val < 100000)
+      return (
+        inWords(Math.floor(val / 1000)) +
+        " Thousand" +
+        (val % 1000 ? " " + inWords(val % 1000) : "")
+      );
+    if (val < 10000000)
+      return (
+        inWords(Math.floor(val / 100000)) +
+        " Lakh" +
+        (val % 100000 ? " " + inWords(val % 100000) : "")
+      );
+    return (
+      inWords(Math.floor(val / 10000000)) +
+      " Crore" +
+      (val % 10000000 ? " " + inWords(val % 10000000) : "")
+    );
+  }
+
+  let str = "Indian Rupees " + inWords(n);
+  if (paise > 0) {
+    str += " and " + inWords(paise) + " paise";
+  }
+  return str + " Only";
+}
+
+/**
+ * Fetch HSN/SAC list helper
+ */
+async function fetchHsnCodes() {
+  try {
+    const resp = await fetch("/api/hsn-sac", {
+      headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+    });
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    return data.codes || [];
+  } catch (e) {
+    return [];
+  }
+}
 
 /**
  * Module entry point, called by app.js router.
@@ -124,7 +222,7 @@ async function renderList(container, currentUser) {
         clientFilter.appendChild(opt);
       });
   } catch (err) {
-    // Non-fatal: filter just stays empty if this fails
+    // Non-fatal
   }
 
   async function loadBills() {
@@ -216,13 +314,15 @@ async function renderList(container, currentUser) {
 // SCREEN 2: CREATE BILL
 // =========================================================================
 async function renderCreate(container, currentUser) {
+  let hsnSacList = await fetchHsnCodes();
+
   container.innerHTML = `
-    <div class="container-fluid p-0 p-sm-4 animate-fade-in" style="max-width: 1000px; margin: 0 auto;">
+    <div class="container-fluid p-0 p-sm-4 animate-fade-in" style="max-width: 1100px; margin: 0 auto;">
 
       <div class="d-flex justify-content-between align-items-center mt-3 mt-sm-0 mb-4 pb-2 px-3 px-sm-0 border-bottom">
         <div>
           <h3 class="fw-bold text-dark mb-1 fs-4 fs-sm-3"><i class="bi bi-receipt-cutoff text-primary me-2"></i>Create Bill</h3>
-          <p class="text-muted small mb-0">Every field below is entered manually. Nothing is auto-calculated.</p>
+          <p class="text-muted small mb-0">Fill in invoice details. Charges, subtotal, and tax breakdowns compute automatically.</p>
         </div>
         <button id="billing-back-btn" class="btn btn-outline-secondary btn-sm fw-semibold shadow-sm">
           <i class="bi bi-arrow-left me-1"></i> Back to List
@@ -235,24 +335,32 @@ async function renderCreate(container, currentUser) {
 
         ${sectionCard(
           "1",
-          "Invoice Information",
+          "Warehouse Details (Prefilled - Edits apply to this bill only)",
           `
           <div class="row g-3">
-            <div class="col-md-4">
-              <label class="form-label small fw-semibold text-muted">Bill Number *</label>
-              <input type="text" id="bill-number-input" class="form-control bg-light" required>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label small fw-semibold text-muted">Invoice Date *</label>
-              <input type="date" id="invoice-date-input" class="form-control bg-light" required>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label small fw-semibold text-muted">Due Date</label>
-              <input type="date" id="due-date-input" class="form-control bg-light">
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold text-muted">Company Legal Name</label>
+              <input type="text" id="wh-company-name-input" class="form-control bg-light" value="${escapeHtml(currentUser.company_name || "")}">
             </div>
             <div class="col-md-6">
-              <label class="form-label small fw-semibold text-muted">Reference Number</label>
-              <input type="text" id="reference-number-input" class="form-control bg-light">
+              <label class="form-label small fw-semibold text-muted">GSTIN / UIN</label>
+              <input type="text" id="wh-gstin-input" class="form-control bg-light" value="${escapeHtml(currentUser.gstin || "")}">
+            </div>
+            <div class="col-md-12">
+              <label class="form-label small fw-semibold text-muted">Address</label>
+              <input type="text" id="wh-address-input" class="form-control bg-light" value="${escapeHtml(currentUser.address || "")}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold text-muted">FSSAI NO</label>
+              <input type="text" id="wh-fssai-input" class="form-control bg-light" placeholder="e.g. 13617012000235">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold text-muted">Bank Name & A/c No.</label>
+              <input type="text" id="wh-bank-input" class="form-control bg-light" placeholder="e.g. KOTAK MAHINDRA BANK 05532970000011">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold text-muted">Branch & IFSC Code</label>
+              <input type="text" id="wh-ifsc-input" class="form-control bg-light" placeholder="e.g. Dilsukhnagar & KKBK0007446">
             </div>
           </div>
         `,
@@ -260,6 +368,35 @@ async function renderCreate(container, currentUser) {
 
         ${sectionCard(
           "2",
+          "Invoice Information",
+          `
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold text-muted">Bill / Invoice Number *</label>
+              <input type="text" id="bill-number-input" class="form-control bg-light" placeholder="e.g. FCS/250/2026-27" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold text-muted">Invoice Date *</label>
+              <input type="date" id="invoice-date-input" class="form-control bg-light" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold text-muted">Mode / Terms of Payment</label>
+              <input type="text" id="due-date-input" class="form-control bg-light" placeholder="e.g. 30 Days">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold text-muted">Delivery Note / Reference No. & Date</label>
+              <input type="text" id="reference-number-input" class="form-control bg-light" placeholder="e.g. FCS/250/2026-27 dt. 3-Aug-26">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold text-muted">Other References (Billing Month)</label>
+              <input type="text" id="other-ref-input" class="form-control bg-light" placeholder="e.g. Month of July-2026">
+            </div>
+          </div>
+        `,
+        )}
+
+        ${sectionCard(
+          "3",
           "Billing Period",
           `
           <div class="row g-3">
@@ -276,8 +413,8 @@ async function renderCreate(container, currentUser) {
         )}
 
         ${sectionCard(
-          "3",
-          "Client",
+          "4",
+          "Buyer (Bill To)",
           `
           <label class="form-label small fw-semibold text-muted">Select Client *</label>
           <select id="client-select-input" class="form-select bg-light" required>
@@ -287,17 +424,18 @@ async function renderCreate(container, currentUser) {
         )}
 
         ${sectionCard(
-          "4",
-          "Charges",
+          "5",
+          "Description of Goods & Services",
           `
           <div class="table-responsive">
             <table class="table table-sm align-middle mb-2" id="charges-table">
               <thead class="table-light small text-uppercase text-secondary">
                 <tr>
-                  <th style="min-width:220px;">Description</th>
+                  <th style="min-width:250px;">Description of Goods and Services</th>
+                  <th style="width:130px;">HSN/SAC</th>
                   <th style="width:100px;">Quantity</th>
-                  <th style="width:100px;">Unit</th>
-                  <th style="width:120px;">Rate</th>
+                  <th style="width:90px;">per</th>
+                  <th style="width:110px;">Rate</th>
                   <th style="width:120px;">Amount</th>
                   <th style="width:40px;"></th>
                 </tr>
@@ -305,55 +443,76 @@ async function renderCreate(container, currentUser) {
               <tbody id="charges-table-body"></tbody>
             </table>
           </div>
-          <button type="button" id="add-charge-row-btn" class="btn btn-light btn-sm border text-muted">
-            <i class="bi bi-plus-lg me-1"></i> Add Row
-          </button>
-        `,
-        )}
-
-        ${sectionCard(
-          "5",
-          "Summary",
-          `
-          <div class="row g-3">
-            <div class="col-md-3">
-              <label class="form-label small fw-semibold text-muted">Subtotal</label>
-              <input type="number" step="0.01" id="subtotal-input" class="form-control bg-light">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label small fw-semibold text-muted">Tax</label>
-              <input type="number" step="0.01" id="tax-input" class="form-control bg-light">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label small fw-semibold text-muted">Discount</label>
-              <input type="number" step="0.01" id="discount-input" class="form-control bg-light">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label small fw-semibold text-muted">Other Charges</label>
-              <input type="number" step="0.01" id="other-charges-input" class="form-control bg-light">
-            </div>
-            <div class="col-md-4">
-              <label class="form-label small fw-semibold text-muted">Grand Total</label>
-              <input type="number" step="0.01" id="grand-total-input" class="form-control bg-light fw-bold">
-            </div>
+          <div class="d-flex justify-content-between align-items-center">
+            <button type="button" id="add-charge-row-btn" class="btn btn-light btn-sm border text-muted">
+              <i class="bi bi-plus-lg me-1"></i> Add Row
+            </button>
+            <button type="button" id="open-hsn-modal-btn" class="btn btn-outline-primary btn-sm fw-semibold">
+              <i class="bi bi-plus-circle me-1"></i> + Create New HSN/SAC
+            </button>
           </div>
         `,
         )}
 
         ${sectionCard(
           "6",
-          "Notes",
+          "Tax & Financial Summary",
           `
-          <textarea id="notes-input" class="form-control bg-light" rows="4"></textarea>
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold text-muted">Subtotal (Auto-Calculated)</label>
+              <input type="number" step="0.01" id="subtotal-input" class="form-control bg-light fw-bold" readonly>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold text-muted">CGST Rate (%)</label>
+              <input type="number" step="0.01" id="cgst-rate-input" class="form-control bg-light" value="9">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold text-muted">CGST Amount</label>
+              <input type="number" step="0.01" id="cgst-amount-input" class="form-control bg-light" readonly>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold text-muted">SGST Rate (%)</label>
+              <input type="number" step="0.01" id="sgst-rate-input" class="form-control bg-light" value="9">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold text-muted">SGST Amount</label>
+              <input type="number" step="0.01" id="sgst-amount-input" class="form-control bg-light" readonly>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold text-muted">Round Off (+ / -)</label>
+              <input type="number" step="0.01" id="roundoff-input" class="form-control bg-light" value="0.00">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold text-muted">Discount</label>
+              <input type="number" step="0.01" id="discount-input" class="form-control bg-light" value="0.00">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold text-muted">Other Charges</label>
+              <input type="number" step="0.01" id="other-charges-input" class="form-control bg-light" value="0.00">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold text-muted">Grand Total</label>
+              <input type="number" step="0.01" id="grand-total-input" class="form-control bg-light fw-bold fs-5 text-primary" readonly>
+            </div>
+          </div>
         `,
         )}
 
         ${sectionCard(
           "7",
+          "Notes & Remarks",
+          `
+          <textarea id="notes-input" class="form-control bg-light" rows="3" placeholder="Additional notes or declarations..."></textarea>
+        `,
+        )}
+
+        ${sectionCard(
+          "8",
           "Attachments (Optional)",
           `
           <input type="file" id="attachments-input" class="form-control bg-light" multiple>
-          <div class="form-text text-muted extra-small" style="font-size:0.75rem;">Uploaded after the bill is created. You can add more later from Bill Details.</div>
+          <div class="form-text text-muted extra-small" style="font-size:0.75rem;">Uploaded after bill creation. You can attach supporting documents anytime.</div>
         `,
         )}
 
@@ -365,6 +524,33 @@ async function renderCreate(container, currentUser) {
         </div>
 
       </form>
+    </div>
+
+    <!-- Inline HSN/SAC Creation Modal -->
+    <div class="modal fade" id="hsnModal" tabindex="-1">
+      <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h6 class="modal-title fw-bold">Create HSN/SAC Code</h6>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div id="hsn-modal-alert"></div>
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">HSN/SAC Code *</label>
+              <input type="text" id="new-hsn-code" class="form-control form-control-sm" placeholder="e.g. 992971">
+            </div>
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">Tax Percentage (%) *</label>
+              <input type="number" step="0.01" id="new-hsn-tax" class="form-control form-control-sm" placeholder="e.g. 18">
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" id="save-hsn-btn" class="btn btn-primary btn-sm fw-semibold">Save Code</button>
+          </div>
+        </div>
+      </div>
     </div>
   `;
 
@@ -395,14 +581,161 @@ async function renderCreate(container, currentUser) {
     clientSelect.innerHTML = `<option value="">Failed to load clients</option>`;
   }
 
-  addRowBtn.addEventListener("click", () => addChargeRow(chargesBody));
-  addChargeRow(chargesBody);
+  function renderHsnOptions(selectedCode = "") {
+    return (
+      `<option value="">None</option>` +
+      hsnSacList
+        .map(
+          (h) =>
+            `<option value="${escapeHtml(h.code)}" data-tax="${h.tax_percentage}" ${
+              h.code === selectedCode ? "selected" : ""
+            }>${escapeHtml(h.code)} (${h.tax_percentage}%)</option>`,
+        )
+        .join("")
+    );
+  }
+
+  function addChargeRowDynamic(tbody, prefill = null) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><textarea class="form-control form-control-sm charge-description" rows="2" placeholder="Main title or detail line...">${prefill ? escapeHtml(prefill.description || "") : ""}</textarea></td>
+      <td><select class="form-select form-select-sm charge-hsn">${renderHsnOptions(prefill ? prefill.hsn_sac : "")}</select></td>
+      <td><input type="number" step="any" class="form-control form-control-sm charge-quantity" value="${prefill && prefill.quantity !== null && prefill.quantity !== undefined ? prefill.quantity : ""}"></td>
+      <td><input type="text" class="form-control form-control-sm charge-unit" value="${prefill ? escapeHtml(prefill.unit || "") : ""}"></td>
+      <td><input type="number" step="any" class="form-control form-control-sm charge-rate" value="${prefill && prefill.rate !== null && prefill.rate !== undefined ? prefill.rate : ""}"></td>
+      <td><input type="number" step="any" class="form-control form-control-sm charge-amount" value="${prefill && prefill.amount !== null && prefill.amount !== undefined ? prefill.amount : ""}"></td>
+      <td><button type="button" class="btn btn-sm btn-outline-danger remove-charge-row-btn"><i class="bi bi-x"></i></button></td>
+    `;
+
+    tr.querySelector(".remove-charge-row-btn").addEventListener("click", () => {
+      if (tbody.children.length > 1) {
+        tr.remove();
+        recalculateSummary();
+      }
+    });
+
+    const qtyIn = tr.querySelector(".charge-quantity");
+    const rateIn = tr.querySelector(".charge-rate");
+    const amtIn = tr.querySelector(".charge-amount");
+
+    const autoCalcAmount = () => {
+      const q = parseFloat(qtyIn.value);
+      const r = parseFloat(rateIn.value);
+      if (!isNaN(q) && !isNaN(r)) {
+        amtIn.value = (q * r).toFixed(2);
+      }
+      recalculateSummary();
+    };
+
+    qtyIn.addEventListener("input", autoCalcAmount);
+    rateIn.addEventListener("input", autoCalcAmount);
+    amtIn.addEventListener("input", recalculateSummary);
+
+    tbody.appendChild(tr);
+  }
+
+  function recalculateSummary() {
+    let subtotal = 0;
+    chargesBody.querySelectorAll(".charge-amount").forEach((input) => {
+      const val = parseFloat(input.value);
+      if (!isNaN(val)) subtotal += val;
+    });
+
+    document.getElementById("subtotal-input").value = subtotal.toFixed(2);
+
+    const cgstRate =
+      parseFloat(document.getElementById("cgst-rate-input").value) || 0;
+    const sgstRate =
+      parseFloat(document.getElementById("sgst-rate-input").value) || 0;
+    const roundoff =
+      parseFloat(document.getElementById("roundoff-input").value) || 0;
+    const discount =
+      parseFloat(document.getElementById("discount-input").value) || 0;
+    const otherCharges =
+      parseFloat(document.getElementById("other-charges-input").value) || 0;
+
+    const cgstAmount = (subtotal * cgstRate) / 100;
+    const sgstAmount = (subtotal * sgstRate) / 100;
+
+    document.getElementById("cgst-amount-input").value = cgstAmount.toFixed(2);
+    document.getElementById("sgst-amount-input").value = sgstAmount.toFixed(2);
+
+    const grandTotal =
+      subtotal + cgstAmount + sgstAmount + roundoff + otherCharges - discount;
+    document.getElementById("grand-total-input").value = grandTotal.toFixed(2);
+  }
+
+  addRowBtn.addEventListener("click", () => addChargeRowDynamic(chargesBody));
+  addChargeRowDynamic(chargesBody);
+
+  document
+    .getElementById("cgst-rate-input")
+    .addEventListener("input", recalculateSummary);
+  document
+    .getElementById("sgst-rate-input")
+    .addEventListener("input", recalculateSummary);
+  document
+    .getElementById("roundoff-input")
+    .addEventListener("input", recalculateSummary);
+  document
+    .getElementById("discount-input")
+    .addEventListener("input", recalculateSummary);
+  document
+    .getElementById("other-charges-input")
+    .addEventListener("input", recalculateSummary);
+
+  // HSN Modal handlers
+  const hsnModalEl = document.getElementById("hsnModal");
+  const hsnModal = new bootstrap.Modal(hsnModalEl);
+
+  document
+    .getElementById("open-hsn-modal-btn")
+    .addEventListener("click", () => hsnModal.show());
+  document
+    .getElementById("save-hsn-btn")
+    .addEventListener("click", async () => {
+      const code = document.getElementById("new-hsn-code").value.trim();
+      const tax = document.getElementById("new-hsn-tax").value;
+      const modalAlert = document.getElementById("hsn-modal-alert");
+
+      if (!code || tax === "") {
+        modalAlert.innerHTML = `<div class="alert alert-warning py-1 small">Please enter Code and Tax %</div>`;
+        return;
+      }
+
+      try {
+        const resp = await fetch("/api/hsn-sac", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+          body: JSON.stringify({ code, tax_percentage: tax }),
+        });
+        const resData = await resp.json();
+        if (!resp.ok)
+          throw new Error(resData.error || "Failed to create HSN code");
+
+        hsnSacList = await fetchHsnCodes();
+        chargesBody.querySelectorAll(".charge-hsn").forEach((select) => {
+          const val = select.value;
+          select.innerHTML = renderHsnOptions(val);
+        });
+
+        hsnModal.hide();
+        document.getElementById("new-hsn-code").value = "";
+        document.getElementById("new-hsn-tax").value = "";
+        modalAlert.innerHTML = "";
+      } catch (err) {
+        modalAlert.innerHTML = `<div class="alert alert-danger py-1 small">${escapeHtml(err.message)}</div>`;
+      }
+    });
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     alertAnchor.innerHTML = "";
 
-    const items = collectChargeRows(chargesBody);
+    const items = collectChargeRowsDynamic(chargesBody);
     const client_id = clientSelect.value;
     const bill_number = document
       .getElementById("bill-number-input")
@@ -430,7 +763,7 @@ async function renderCreate(container, currentUser) {
       client_id,
       bill_number,
       invoice_date,
-      due_date: document.getElementById("due-date-input").value || null,
+      due_date: document.getElementById("due-date-input").value.trim() || null,
       billing_period_from:
         document.getElementById("period-from-input").value || null,
       billing_period_to:
@@ -438,12 +771,30 @@ async function renderCreate(container, currentUser) {
       reference_number:
         document.getElementById("reference-number-input").value.trim() || null,
       subtotal: document.getElementById("subtotal-input").value || 0,
-      tax: document.getElementById("tax-input").value || 0,
+      tax: (
+        parseFloat(document.getElementById("cgst-amount-input").value || 0) +
+        parseFloat(document.getElementById("sgst-amount-input").value || 0)
+      ).toFixed(2),
       discount: document.getElementById("discount-input").value || 0,
       other_charges: document.getElementById("other-charges-input").value || 0,
       grand_total: document.getElementById("grand-total-input").value || 0,
       notes: document.getElementById("notes-input").value.trim() || null,
       items,
+      // Metadata overrides for Tally PDF generator
+      wh_company_name: document
+        .getElementById("wh-company-name-input")
+        .value.trim(),
+      wh_gstin: document.getElementById("wh-gstin-input").value.trim(),
+      wh_address: document.getElementById("wh-address-input").value.trim(),
+      wh_fssai: document.getElementById("wh-fssai-input").value.trim(),
+      wh_bank: document.getElementById("wh-bank-input").value.trim(),
+      wh_ifsc: document.getElementById("wh-ifsc-input").value.trim(),
+      other_ref: document.getElementById("other-ref-input").value.trim(),
+      cgst_rate: document.getElementById("cgst-rate-input").value || 0,
+      cgst_amount: document.getElementById("cgst-amount-input").value || 0,
+      sgst_rate: document.getElementById("sgst-rate-input").value || 0,
+      sgst_amount: document.getElementById("sgst-amount-input").value || 0,
+      round_off: document.getElementById("roundoff-input").value || 0,
     };
 
     submitBtn.disabled = true;
@@ -461,7 +812,6 @@ async function renderCreate(container, currentUser) {
           try {
             await Api.billing.uploadAttachment(billingId, fd);
           } catch (attErr) {
-            // Non-fatal — bill is already created; surface but don't block navigation
             console.error("Attachment upload failed:", attErr.message);
           }
         }
@@ -538,7 +888,7 @@ async function renderDetails(
             <i class="bi bi-arrow-left me-1"></i> Back
           </button>
           <button id="download-invoice-btn" class="btn btn-outline-primary btn-sm fw-semibold shadow-sm">
-            <i class="bi bi-download me-1"></i> Download Invoice
+            <i class="bi bi-download me-1"></i> Download Tally PDF Invoice
           </button>
           ${
             !isPaid
@@ -682,7 +1032,7 @@ function renderReadOnlyBody(
       <div class="row g-3 small">
         <div class="col-md-4"><span class="text-muted d-block">Bill Number</span><span class="fw-semibold">${escapeHtml(bill.bill_number)}</span></div>
         <div class="col-md-4"><span class="text-muted d-block">Invoice Date</span><span class="fw-semibold">${escapeHtml(bill.invoice_date || "—")}</span></div>
-        <div class="col-md-4"><span class="text-muted d-block">Due Date</span><span class="fw-semibold">${escapeHtml(bill.due_date || "—")}</span></div>
+        <div class="col-md-4"><span class="text-muted d-block">Due Date / Terms</span><span class="fw-semibold">${escapeHtml(bill.due_date || "—")}</span></div>
         <div class="col-md-6"><span class="text-muted d-block">Reference Number</span><span class="fw-semibold">${escapeHtml(bill.reference_number || "—")}</span></div>
       </div>
     `,
@@ -717,14 +1067,15 @@ function renderReadOnlyBody(
       <div class="table-responsive">
         <table class="table table-sm mb-0">
           <thead class="table-light small text-uppercase text-secondary">
-            <tr><th>Description</th><th>Quantity</th><th>Unit</th><th>Rate</th><th>Amount</th></tr>
+            <tr><th>Description</th><th>HSN/SAC</th><th>Quantity</th><th>Unit</th><th>Rate</th><th>Amount</th></tr>
           </thead>
           <tbody>
             ${items
               .map(
                 (it) => `
               <tr>
-                <td>${escapeHtml(it.description)}</td>
+                <td style="white-space: pre-line;">${escapeHtml(it.description)}</td>
+                <td>${escapeHtml(it.hsn_sac || "—")}</td>
                 <td>${it.quantity ?? "—"}</td>
                 <td>${escapeHtml(it.unit || "—")}</td>
                 <td>${it.rate ?? "—"}</td>
@@ -849,8 +1200,43 @@ async function renderEditForm(
   attachments,
   billingId,
 ) {
+  let hsnSacList = await fetchHsnCodes();
+
   bodyEl.innerHTML = `
     <form id="billing-edit-form" novalidate>
+      ${sectionCard(
+        "",
+        "Warehouse Header Details (Current Bill Only)",
+        `
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label small fw-semibold text-muted">Company Legal Name</label>
+            <input type="text" id="edit-wh-company-name-input" class="form-control bg-light" value="${escapeHtml(bill.wh_company_name || currentUser.company_name || "")}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small fw-semibold text-muted">GSTIN / UIN</label>
+            <input type="text" id="edit-wh-gstin-input" class="form-control bg-light" value="${escapeHtml(bill.wh_gstin || currentUser.gstin || "")}">
+          </div>
+          <div class="col-md-12">
+            <label class="form-label small fw-semibold text-muted">Address</label>
+            <input type="text" id="edit-wh-address-input" class="form-control bg-light" value="${escapeHtml(bill.wh_address || currentUser.address || "")}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold text-muted">FSSAI NO</label>
+            <input type="text" id="edit-wh-fssai-input" class="form-control bg-light" value="${escapeHtml(bill.wh_fssai || "")}" placeholder="e.g. 13617012000235">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold text-muted">Bank Name & A/c No.</label>
+            <input type="text" id="edit-wh-bank-input" class="form-control bg-light" value="${escapeHtml(bill.wh_bank || "")}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold text-muted">Branch & IFSC Code</label>
+            <input type="text" id="edit-wh-ifsc-input" class="form-control bg-light" value="${escapeHtml(bill.wh_ifsc || "")}">
+          </div>
+        </div>
+      `,
+      )}
+
       ${sectionCard(
         "",
         "Invoice Information",
@@ -865,12 +1251,16 @@ async function renderEditForm(
             <input type="date" id="edit-invoice-date-input" class="form-control bg-light" value="${bill.invoice_date || ""}" required>
           </div>
           <div class="col-md-4">
-            <label class="form-label small fw-semibold text-muted">Due Date</label>
-            <input type="date" id="edit-due-date-input" class="form-control bg-light" value="${bill.due_date || ""}">
+            <label class="form-label small fw-semibold text-muted">Due Date / Terms</label>
+            <input type="text" id="edit-due-date-input" class="form-control bg-light" value="${escapeHtml(bill.due_date || "")}">
           </div>
           <div class="col-md-6">
-            <label class="form-label small fw-semibold text-muted">Reference Number</label>
+            <label class="form-label small fw-semibold text-muted">Delivery Note / Reference No. & Date</label>
             <input type="text" id="edit-reference-number-input" class="form-control bg-light" value="${escapeHtml(bill.reference_number || "")}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small fw-semibold text-muted">Other References (Billing Month)</label>
+            <input type="text" id="edit-other-ref-input" class="form-control bg-light" value="${escapeHtml(bill.other_ref || "")}">
           </div>
         </div>
       `,
@@ -906,16 +1296,17 @@ async function renderEditForm(
 
       ${sectionCard(
         "",
-        "Charges",
+        "Description of Goods & Services",
         `
         <div class="table-responsive">
           <table class="table table-sm align-middle mb-2" id="edit-charges-table">
             <thead class="table-light small text-uppercase text-secondary">
               <tr>
-                <th style="min-width:220px;">Description</th>
+                <th style="min-width:250px;">Description of Goods and Services</th>
+                <th style="width:130px;">HSN/SAC</th>
                 <th style="width:100px;">Quantity</th>
-                <th style="width:100px;">Unit</th>
-                <th style="width:120px;">Rate</th>
+                <th style="width:90px;">per</th>
+                <th style="width:110px;">Rate</th>
                 <th style="width:120px;">Amount</th>
                 <th style="width:40px;"></th>
               </tr>
@@ -934,25 +1325,41 @@ async function renderEditForm(
         "Summary",
         `
         <div class="row g-3">
-          <div class="col-md-3">
+          <div class="col-md-4">
             <label class="form-label small fw-semibold text-muted">Subtotal</label>
-            <input type="number" step="0.01" id="edit-subtotal-input" class="form-control bg-light" value="${bill.subtotal ?? 0}">
+            <input type="number" step="0.01" id="edit-subtotal-input" class="form-control bg-light fw-bold" value="${bill.subtotal ?? 0}" readonly>
           </div>
-          <div class="col-md-3">
-            <label class="form-label small fw-semibold text-muted">Tax</label>
-            <input type="number" step="0.01" id="edit-tax-input" class="form-control bg-light" value="${bill.tax ?? 0}">
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold text-muted">CGST Rate (%)</label>
+            <input type="number" step="0.01" id="edit-cgst-rate-input" class="form-control bg-light" value="${bill.cgst_rate ?? 9}">
           </div>
-          <div class="col-md-3">
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold text-muted">CGST Amount</label>
+            <input type="number" step="0.01" id="edit-cgst-amount-input" class="form-control bg-light" value="${bill.cgst_amount ?? 0}" readonly>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold text-muted">SGST Rate (%)</label>
+            <input type="number" step="0.01" id="edit-sgst-rate-input" class="form-control bg-light" value="${bill.sgst_rate ?? 9}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold text-muted">SGST Amount</label>
+            <input type="number" step="0.01" id="edit-sgst-amount-input" class="form-control bg-light" value="${bill.sgst_amount ?? 0}" readonly>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold text-muted">Round Off (+ / -)</label>
+            <input type="number" step="0.01" id="edit-roundoff-input" class="form-control bg-light" value="${bill.round_off ?? 0}">
+          </div>
+          <div class="col-md-4">
             <label class="form-label small fw-semibold text-muted">Discount</label>
             <input type="number" step="0.01" id="edit-discount-input" class="form-control bg-light" value="${bill.discount ?? 0}">
           </div>
-          <div class="col-md-3">
+          <div class="col-md-4">
             <label class="form-label small fw-semibold text-muted">Other Charges</label>
             <input type="number" step="0.01" id="edit-other-charges-input" class="form-control bg-light" value="${bill.other_charges ?? 0}">
           </div>
           <div class="col-md-4">
             <label class="form-label small fw-semibold text-muted">Grand Total</label>
-            <input type="number" step="0.01" id="edit-grand-total-input" class="form-control bg-light fw-bold" value="${bill.grand_total ?? 0}">
+            <input type="number" step="0.01" id="edit-grand-total-input" class="form-control bg-light fw-bold fs-5 text-primary" value="${bill.grand_total ?? 0}" readonly>
           </div>
         </div>
       `,
@@ -962,7 +1369,7 @@ async function renderEditForm(
         "",
         "Notes",
         `
-        <textarea id="edit-notes-input" class="form-control bg-light" rows="4">${escapeHtml(bill.notes || "")}</textarea>
+        <textarea id="edit-notes-input" class="form-control bg-light" rows="3">${escapeHtml(bill.notes || "")}</textarea>
       `,
       )}
 
@@ -993,15 +1400,119 @@ async function renderEditForm(
     editClientSelect.innerHTML = `<option value="${bill.client_id}">${escapeHtml(bill.client_name)}</option>`;
   }
 
+  function renderEditHsnOptions(selectedCode = "") {
+    return (
+      `<option value="">None</option>` +
+      hsnSacList
+        .map(
+          (h) =>
+            `<option value="${escapeHtml(h.code)}" data-tax="${h.tax_percentage}" ${
+              h.code === selectedCode ? "selected" : ""
+            }>${escapeHtml(h.code)} (${h.tax_percentage}%)</option>`,
+        )
+        .join("")
+    );
+  }
+
+  function addEditChargeRow(tbody, prefill = null) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><textarea class="form-control form-control-sm charge-description" rows="2">${prefill ? escapeHtml(prefill.description || "") : ""}</textarea></td>
+      <td><select class="form-select form-select-sm charge-hsn">${renderEditHsnOptions(prefill ? prefill.hsn_sac : "")}</select></td>
+      <td><input type="number" step="any" class="form-control form-control-sm charge-quantity" value="${prefill && prefill.quantity !== null && prefill.quantity !== undefined ? prefill.quantity : ""}"></td>
+      <td><input type="text" class="form-control form-control-sm charge-unit" value="${prefill ? escapeHtml(prefill.unit || "") : ""}"></td>
+      <td><input type="number" step="any" class="form-control form-control-sm charge-rate" value="${prefill && prefill.rate !== null && prefill.rate !== undefined ? prefill.rate : ""}"></td>
+      <td><input type="number" step="any" class="form-control form-control-sm charge-amount" value="${prefill && prefill.amount !== null && prefill.amount !== undefined ? prefill.amount : ""}"></td>
+      <td><button type="button" class="btn btn-sm btn-outline-danger remove-charge-row-btn"><i class="bi bi-x"></i></button></td>
+    `;
+
+    tr.querySelector(".remove-charge-row-btn").addEventListener("click", () => {
+      if (tbody.children.length > 1) {
+        tr.remove();
+        recalculateEditSummary();
+      }
+    });
+
+    const qtyIn = tr.querySelector(".charge-quantity");
+    const rateIn = tr.querySelector(".charge-rate");
+    const amtIn = tr.querySelector(".charge-amount");
+
+    const autoCalcAmount = () => {
+      const q = parseFloat(qtyIn.value);
+      const r = parseFloat(rateIn.value);
+      if (!isNaN(q) && !isNaN(r)) {
+        amtIn.value = (q * r).toFixed(2);
+      }
+      recalculateEditSummary();
+    };
+
+    qtyIn.addEventListener("input", autoCalcAmount);
+    rateIn.addEventListener("input", autoCalcAmount);
+    amtIn.addEventListener("input", recalculateEditSummary);
+
+    tbody.appendChild(tr);
+  }
+
+  function recalculateEditSummary() {
+    let subtotal = 0;
+    editChargesBody.querySelectorAll(".charge-amount").forEach((input) => {
+      const val = parseFloat(input.value);
+      if (!isNaN(val)) subtotal += val;
+    });
+
+    document.getElementById("edit-subtotal-input").value = subtotal.toFixed(2);
+
+    const cgstRate =
+      parseFloat(document.getElementById("edit-cgst-rate-input").value) || 0;
+    const sgstRate =
+      parseFloat(document.getElementById("edit-sgst-rate-input").value) || 0;
+    const roundoff =
+      parseFloat(document.getElementById("edit-roundoff-input").value) || 0;
+    const discount =
+      parseFloat(document.getElementById("edit-discount-input").value) || 0;
+    const otherCharges =
+      parseFloat(document.getElementById("edit-other-charges-input").value) ||
+      0;
+
+    const cgstAmount = (subtotal * cgstRate) / 100;
+    const sgstAmount = (subtotal * sgstRate) / 100;
+
+    document.getElementById("edit-cgst-amount-input").value =
+      cgstAmount.toFixed(2);
+    document.getElementById("edit-sgst-amount-input").value =
+      sgstAmount.toFixed(2);
+
+    const grandTotal =
+      subtotal + cgstAmount + sgstAmount + roundoff + otherCharges - discount;
+    document.getElementById("edit-grand-total-input").value =
+      grandTotal.toFixed(2);
+  }
+
   if (items.length === 0) {
-    addChargeRow(editChargesBody);
+    addEditChargeRow(editChargesBody);
   } else {
-    items.forEach((it) => addChargeRow(editChargesBody, it));
+    items.forEach((it) => addEditChargeRow(editChargesBody, it));
   }
 
   document
     .getElementById("edit-add-charge-row-btn")
-    .addEventListener("click", () => addChargeRow(editChargesBody));
+    .addEventListener("click", () => addEditChargeRow(editChargesBody));
+  document
+    .getElementById("edit-cgst-rate-input")
+    .addEventListener("input", recalculateEditSummary);
+  document
+    .getElementById("edit-sgst-rate-input")
+    .addEventListener("input", recalculateEditSummary);
+  document
+    .getElementById("edit-roundoff-input")
+    .addEventListener("input", recalculateEditSummary);
+  document
+    .getElementById("edit-discount-input")
+    .addEventListener("input", recalculateEditSummary);
+  document
+    .getElementById("edit-other-charges-input")
+    .addEventListener("input", recalculateEditSummary);
+
   document
     .getElementById("edit-cancel-btn")
     .addEventListener("click", () =>
@@ -1014,7 +1525,7 @@ async function renderEditForm(
       e.preventDefault();
       alertAnchor.innerHTML = "";
 
-      const editItems = collectChargeRows(editChargesBody);
+      const editItems = collectChargeRowsDynamic(editChargesBody);
       const client_id = editClientSelect.value;
       const bill_number = document
         .getElementById("edit-bill-number-input")
@@ -1044,7 +1555,8 @@ async function renderEditForm(
         client_id,
         bill_number,
         invoice_date,
-        due_date: document.getElementById("edit-due-date-input").value || null,
+        due_date:
+          document.getElementById("edit-due-date-input").value.trim() || null,
         billing_period_from:
           document.getElementById("edit-period-from-input").value || null,
         billing_period_to:
@@ -1053,7 +1565,14 @@ async function renderEditForm(
           document.getElementById("edit-reference-number-input").value.trim() ||
           null,
         subtotal: document.getElementById("edit-subtotal-input").value || 0,
-        tax: document.getElementById("edit-tax-input").value || 0,
+        tax: (
+          parseFloat(
+            document.getElementById("edit-cgst-amount-input").value || 0,
+          ) +
+          parseFloat(
+            document.getElementById("edit-sgst-amount-input").value || 0,
+          )
+        ).toFixed(2),
         discount: document.getElementById("edit-discount-input").value || 0,
         other_charges:
           document.getElementById("edit-other-charges-input").value || 0,
@@ -1061,6 +1580,24 @@ async function renderEditForm(
           document.getElementById("edit-grand-total-input").value || 0,
         notes: document.getElementById("edit-notes-input").value.trim() || null,
         items: editItems,
+        wh_company_name: document
+          .getElementById("edit-wh-company-name-input")
+          .value.trim(),
+        wh_gstin: document.getElementById("edit-wh-gstin-input").value.trim(),
+        wh_address: document
+          .getElementById("edit-wh-address-input")
+          .value.trim(),
+        wh_fssai: document.getElementById("edit-wh-fssai-input").value.trim(),
+        wh_bank: document.getElementById("edit-wh-bank-input").value.trim(),
+        wh_ifsc: document.getElementById("edit-wh-ifsc-input").value.trim(),
+        other_ref: document.getElementById("edit-other-ref-input").value.trim(),
+        cgst_rate: document.getElementById("edit-cgst-rate-input").value || 0,
+        cgst_amount:
+          document.getElementById("edit-cgst-amount-input").value || 0,
+        sgst_rate: document.getElementById("edit-sgst-rate-input").value || 0,
+        sgst_amount:
+          document.getElementById("edit-sgst-amount-input").value || 0,
+        round_off: document.getElementById("edit-roundoff-input").value || 0,
       };
 
       const saveBtn = document.getElementById("edit-save-btn");
@@ -1097,33 +1634,21 @@ function sectionCard(badge, title, innerHtml) {
   `;
 }
 
-function addChargeRow(tbody, prefill = null) {
-  const tr = document.createElement("tr");
-  tr.innerHTML = `
-    <td><input type="text" class="form-control form-control-sm charge-description" value="${prefill ? escapeHtml(prefill.description || "") : ""}"></td>
-    <td><input type="number" step="any" class="form-control form-control-sm charge-quantity" value="${prefill && prefill.quantity !== null && prefill.quantity !== undefined ? prefill.quantity : ""}"></td>
-    <td><input type="text" class="form-control form-control-sm charge-unit" value="${prefill ? escapeHtml(prefill.unit || "") : ""}"></td>
-    <td><input type="number" step="any" class="form-control form-control-sm charge-rate" value="${prefill && prefill.rate !== null && prefill.rate !== undefined ? prefill.rate : ""}"></td>
-    <td><input type="number" step="any" class="form-control form-control-sm charge-amount" value="${prefill && prefill.amount !== null && prefill.amount !== undefined ? prefill.amount : ""}"></td>
-    <td><button type="button" class="btn btn-sm btn-outline-danger remove-charge-row-btn"><i class="bi bi-x"></i></button></td>
-  `;
-  tr.querySelector(".remove-charge-row-btn").addEventListener("click", () => {
-    if (tbody.children.length > 1) tr.remove();
-  });
-  tbody.appendChild(tr);
-}
-
-function collectChargeRows(tbody) {
+function collectChargeRowsDynamic(tbody) {
   const rows = [];
   tbody.querySelectorAll("tr").forEach((tr) => {
     const description = tr.querySelector(".charge-description").value.trim();
+    const hsn_sac = tr.querySelector(".charge-hsn")
+      ? tr.querySelector(".charge-hsn").value
+      : "";
     const quantity = tr.querySelector(".charge-quantity").value;
     const unit = tr.querySelector(".charge-unit").value.trim();
     const rate = tr.querySelector(".charge-rate").value;
     const amount = tr.querySelector(".charge-amount").value;
-    if (!description && !quantity && !unit && !rate && !amount) return; // skip fully empty rows
+    if (!description && !quantity && !unit && !rate && !amount) return;
     rows.push({
       description,
+      hsn_sac: hsn_sac || null,
       quantity: quantity === "" ? null : Number(quantity),
       unit: unit || null,
       rate: rate === "" ? null : Number(rate),
@@ -1186,7 +1711,7 @@ function renderAlert(anchor, type, message) {
 
 function formatMoney(val) {
   const num = Number(val) || 0;
-  return num.toLocaleString(undefined, {
+  return num.toLocaleString("en-IN", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -1203,7 +1728,7 @@ function escapeHtml(str) {
 }
 
 // =========================================================================
-// CLIENT-SIDE PDF GENERATION — nothing sent to or generated by the backend.
+// FULL TALLY PDF GENERATION — CLIENT-SIDE
 // =========================================================================
 function loadJsPdf() {
   if (window.jspdf && window.jspdf.jsPDF) return Promise.resolve();
@@ -1226,146 +1751,447 @@ async function generateInvoicePdf(currentUser, bill, items) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
-  const margin = 40;
-  let y = 50;
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 28;
+  let y = margin;
 
-  doc.setFontSize(16);
-  doc.setFont(undefined, "bold");
-  doc.text(currentUser.company_name || "Warehouse", margin, y);
-  doc.setFontSize(9);
-  doc.setFont(undefined, "normal");
-  y += 16;
-  if (currentUser.address) {
-    doc.text(currentUser.address, margin, y);
-    y += 12;
-  }
-  if (currentUser.gstin) {
-    doc.text(`GSTIN: ${currentUser.gstin}`, margin, y);
-    y += 12;
-  }
+  const boxWidth = pageWidth - margin * 2;
+  const boxHeight = pageHeight - margin * 2;
 
-  y += 10;
-  doc.setDrawColor(200);
-  doc.line(margin, y, pageWidth - margin, y);
-  y += 22;
+  // Outer Box Border
+  doc.setLineWidth(0.75);
+  doc.setDrawColor(0);
+  doc.rect(margin, margin, boxWidth, boxHeight);
 
-  doc.setFontSize(14);
-  doc.setFont(undefined, "bold");
-  doc.text("INVOICE", margin, y);
-  y += 20;
-
+  // Title Row
   doc.setFontSize(10);
-  doc.setFont(undefined, "normal");
-  const infoLines = [
-    [
-      `Invoice Number: ${bill.bill_number}`,
-      `Invoice Date: ${bill.invoice_date || "—"}`,
-    ],
-    [
-      `Due Date: ${bill.due_date || "—"}`,
-      `Billing Period: ${bill.billing_period_from || "—"} to ${bill.billing_period_to || "—"}`,
-    ],
+  doc.setFont("helvetica", "bold");
+  doc.text("TAX INVOICE", pageWidth / 2, y + 12, { align: "center" });
+  y += 18;
+  doc.line(margin, y, pageWidth - margin, y);
+
+  // Header Left Block (Warehouse Info)
+  const midX = margin + 260;
+  const headerTopY = y;
+
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "bold");
+  const compName =
+    bill.wh_company_name ||
+    currentUser.company_name ||
+    "FOSTER COLD STORAGE PVT LTD";
+  doc.text(compName, margin + 6, y + 12);
+
+  doc.setFontSize(7.5);
+  doc.setFont("helvetica", "normal");
+  let leftY = y + 23;
+  if (bill.wh_address || currentUser.address) {
+    const addrLines = doc.splitTextToSize(
+      bill.wh_address || currentUser.address,
+      245,
+    );
+    doc.text(addrLines, margin + 6, leftY);
+    leftY += addrLines.length * 9;
+  }
+  doc.text(`FSSAI NO: ${bill.wh_fssai || "13617012000235"}`, margin + 6, leftY);
+  leftY += 10;
+  doc.text(
+    `GSTIN/UIN: ${bill.wh_gstin || currentUser.gstin || "36AAACF5063D2ZY"}`,
+    margin + 6,
+    leftY,
+  );
+  leftY += 10;
+  doc.text(`State Name: Telangana, Code: 36`, margin + 6, leftY);
+  leftY += 10;
+
+  // Header Right Block (Grid Meta)
+  doc.line(midX, headerTopY, midX, headerTopY + 120);
+
+  let rightY = headerTopY;
+  const metaCols = [midX, midX + 130];
+
+  doc.text(`Invoice No.`, metaCols[0] + 4, rightY + 10);
+  doc.setFont("helvetica", "bold");
+  doc.text(`${bill.bill_number}`, metaCols[0] + 4, rightY + 19);
+  doc.setFont("helvetica", "normal");
+
+  doc.text(`Dated`, metaCols[1] + 4, rightY + 10);
+  doc.setFont("helvetica", "bold");
+  doc.text(`${bill.invoice_date || "—"}`, metaCols[1] + 4, rightY + 19);
+  doc.setFont("helvetica", "normal");
+
+  rightY += 24;
+  doc.line(midX, rightY, pageWidth - margin, rightY);
+
+  doc.text(`Delivery Note`, metaCols[0] + 4, rightY + 10);
+  doc.text(`Mode/Terms of Payment`, metaCols[1] + 4, rightY + 10);
+  doc.setFont("helvetica", "bold");
+  doc.text(`${bill.due_date || "30 Days"}`, metaCols[1] + 4, rightY + 19);
+  doc.setFont("helvetica", "normal");
+
+  rightY += 24;
+  doc.line(midX, rightY, pageWidth - margin, rightY);
+
+  doc.text(`Reference No. & Date.`, metaCols[0] + 4, rightY + 10);
+  doc.text(`${bill.reference_number || "—"}`, metaCols[0] + 4, rightY + 19);
+
+  doc.text(`Other References`, metaCols[1] + 4, rightY + 10);
+  doc.text(
+    `${bill.other_ref || bill.notes || "—"}`,
+    metaCols[1] + 4,
+    rightY + 19,
+  );
+
+  rightY += 24;
+  doc.line(midX, rightY, pageWidth - margin, rightY);
+
+  doc.text(`Buyer's Order No.`, metaCols[0] + 4, rightY + 10);
+  doc.text(`Dated`, metaCols[1] + 4, rightY + 10);
+
+  rightY += 24;
+  doc.line(midX, rightY, pageWidth - margin, rightY);
+
+  doc.text(`Dispatch Doc No.`, metaCols[0] + 4, rightY + 10);
+  doc.text(`Delivery Note Date`, metaCols[1] + 4, rightY + 10);
+
+  y = headerTopY + 120;
+  doc.line(margin, y, pageWidth - margin, y);
+
+  // Buyer Block Section
+  const buyerTopY = y;
+  doc.setFontSize(7.5);
+  doc.setFont("helvetica", "normal");
+  doc.text("Buyer (Bill to)", margin + 6, y + 10);
+  doc.setFont("helvetica", "bold");
+  doc.text(`${bill.client_name || ""}`, margin + 6, y + 20);
+  doc.setFont("helvetica", "normal");
+
+  let buyerY = y + 29;
+  if (bill.client_address) {
+    const clientAddr = doc.splitTextToSize(bill.client_address, 245);
+    doc.text(clientAddr, margin + 6, buyerY);
+    buyerY += clientAddr.length * 9;
+  }
+  doc.text(`GSTIN/UIN: ${bill.client_gstin || "—"}`, margin + 6, buyerY);
+  buyerY += 10;
+  doc.text(`State Name: Telangana, Code: 36`, margin + 6, buyerY);
+  buyerY += 10;
+
+  // Buyer Right Block
+  doc.line(midX, buyerTopY, midX, buyerTopY + 50);
+  doc.text(`Dispatched through`, metaCols[0] + 4, buyerTopY + 10);
+  doc.text(`Destination`, metaCols[1] + 4, buyerTopY + 10);
+  doc.line(midX, buyerTopY + 25, pageWidth - margin, buyerTopY + 25);
+  doc.text(`Terms of Delivery`, metaCols[0] + 4, buyerTopY + 35);
+
+  y = buyerTopY + 50;
+  doc.line(margin, y, pageWidth - margin, y);
+
+  // Tally Table Columns Definitions
+  const cols = [
+    { name: "SI No", x: margin, width: 22, align: "center" },
+    {
+      name: "Description of Goods and Services",
+      x: margin + 22,
+      width: 218,
+      align: "left",
+    },
+    { name: "HSN/SAC", x: margin + 240, width: 52, align: "center" },
+    { name: "MRP/Marginal", x: margin + 292, width: 45, align: "center" },
+    { name: "Quantity", x: margin + 337, width: 50, align: "right" },
+    { name: "Rate", x: margin + 387, width: 55, align: "right" },
+    { name: "per", x: margin + 442, width: 32, align: "center" },
+    { name: "Amount", x: margin + 474, width: boxWidth - 474, align: "right" },
   ];
-  infoLines.forEach((pair) => {
-    doc.text(pair[0], margin, y);
-    doc.text(pair[1], margin + 260, y);
-    y += 16;
+
+  const tableHeaderTopY = y;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7.5);
+
+  cols.forEach((col, idx) => {
+    let textX = col.x + col.width / 2;
+    if (col.align === "left") textX = col.x + 4;
+    if (col.align === "right") textX = col.x + col.width - 4;
+
+    if (col.name.includes("Description")) {
+      doc.text("Description of", col.x + 4, tableHeaderTopY + 9);
+      doc.text("Goods and Services", col.x + 4, tableHeaderTopY + 18);
+    } else {
+      doc.text(col.name, textX, tableHeaderTopY + 14, { align: col.align });
+    }
+
+    if (idx > 0) {
+      doc.line(col.x, tableHeaderTopY, col.x, tableHeaderTopY + 24);
+    }
   });
 
-  y += 8;
-  doc.setFont(undefined, "bold");
-  doc.text("Bill To:", margin, y);
-  doc.setFont(undefined, "normal");
-  y += 14;
-  doc.text(bill.client_name || "", margin, y);
-  y += 14;
-  if (bill.client_gstin) {
-    doc.text(`GSTIN: ${bill.client_gstin}`, margin, y);
-    y += 14;
-  }
-
-  y += 12;
+  y += 24;
   doc.line(margin, y, pageWidth - margin, y);
-  y += 20;
 
-  const colX = [margin, margin + 220, margin + 300, margin + 370, margin + 450];
-  doc.setFont(undefined, "bold");
-  doc.text("Description", colX[0], y);
-  doc.text("Qty", colX[1], y);
-  doc.text("Unit", colX[2], y);
-  doc.text("Rate", colX[3], y);
-  doc.text("Amount", colX[4], y);
-  y += 8;
-  doc.line(margin, y, pageWidth - margin, y);
-  y += 16;
-  doc.setFont(undefined, "normal");
+  // Table Data Rows
+  const tableContentTopY = y;
+  let itemIndex = 1;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.5);
 
   items.forEach((it) => {
-    if (y > 720) {
-      doc.addPage();
-      y = 50;
+    const descLines = doc.splitTextToSize(it.description || "", 210);
+
+    doc.text(String(itemIndex++), cols[0].x + cols[0].width / 2, y + 10, {
+      align: "center",
+    });
+    doc.text(descLines, cols[1].x + 4, y + 10);
+    doc.text(it.hsn_sac || "992971", cols[2].x + cols[2].width / 2, y + 10, {
+      align: "center",
+    });
+
+    if (
+      it.quantity !== null &&
+      it.quantity !== undefined &&
+      it.quantity !== ""
+    ) {
+      doc.text(String(it.quantity), cols[4].x + cols[4].width - 4, y + 10, {
+        align: "right",
+      });
     }
-    doc.text(String(it.description || ""), colX[0], y, { maxWidth: 200 });
-    doc.text(
-      it.quantity !== null && it.quantity !== undefined
-        ? String(it.quantity)
-        : "—",
-      colX[1],
-      y,
-    );
-    doc.text(it.unit || "—", colX[2], y);
-    doc.text(
-      it.rate !== null && it.rate !== undefined ? String(it.rate) : "—",
-      colX[3],
-      y,
-    );
-    doc.text(
-      it.amount !== null && it.amount !== undefined ? String(it.amount) : "—",
-      colX[4],
-      y,
-    );
-    y += 18;
+    if (it.rate !== null && it.rate !== undefined && it.rate !== "") {
+      doc.text(formatMoney(it.rate), cols[5].x + cols[5].width - 4, y + 10, {
+        align: "right",
+      });
+    }
+    if (it.unit) {
+      doc.text(it.unit, cols[6].x + cols[6].width / 2, y + 10, {
+        align: "center",
+      });
+    }
+    if (it.amount !== null && it.amount !== undefined && it.amount !== "") {
+      doc.text(formatMoney(it.amount), cols[7].x + cols[7].width - 4, y + 10, {
+        align: "right",
+      });
+    }
+
+    y += Math.max(16, descLines.length * 9 + 5);
   });
 
-  y += 8;
-  doc.line(margin, y, pageWidth - margin, y);
-  y += 20;
+  // Calculate taxes and totals
+  const subtotal = Number(bill.subtotal) || 0;
+  const cgstRate = Number(bill.cgst_rate) || 9;
+  const cgstAmount = Number(bill.cgst_amount) || (subtotal * cgstRate) / 100;
+  const sgstRate = Number(bill.sgst_rate) || 9;
+  const sgstAmount = Number(bill.sgst_amount) || (subtotal * sgstRate) / 100;
+  const roundoff = Number(bill.round_off) || 0;
+  const grandTotal =
+    Number(bill.grand_total) || subtotal + cgstAmount + sgstAmount + roundoff;
 
-  const summaryX = pageWidth - margin - 160;
-  const summaryRows = [
-    ["Subtotal", bill.subtotal],
-    ["Tax", bill.tax],
-    ["Discount", bill.discount],
-    ["Other Charges", bill.other_charges],
-  ];
-  summaryRows.forEach(([label, val]) => {
-    doc.text(label, summaryX, y);
-    doc.text(formatMoney(val), pageWidth - margin - 10, y, { align: "right" });
-    y += 16;
-  });
-  doc.setFont(undefined, "bold");
-  doc.setFontSize(12);
-  doc.text("Grand Total", summaryX, y);
-  doc.text(formatMoney(bill.grand_total), pageWidth - margin - 10, y, {
+  // Subtotal line row
+  doc.setFont("helvetica", "bold");
+  doc.text(formatMoney(subtotal), cols[7].x + cols[7].width - 4, y + 10, {
     align: "right",
   });
-  y += 30;
+  y += 16;
 
-  if (bill.notes) {
-    doc.setFontSize(10);
-    doc.setFont(undefined, "bold");
-    doc.text("Notes:", margin, y);
-    y += 14;
-    doc.setFont(undefined, "normal");
-    const splitNotes = doc.splitTextToSize(bill.notes, pageWidth - margin * 2);
-    doc.text(splitNotes, margin, y);
-    y += splitNotes.length * 12 + 20;
-  }
+  // Tax Rows
+  doc.setFont("helvetica", "normal");
+  doc.text("CGST", cols[1].x + 4, y + 10);
+  doc.text(formatMoney(cgstAmount), cols[7].x + cols[7].width - 4, y + 10, {
+    align: "right",
+  });
+  y += 14;
 
-  y = Math.max(y, doc.internal.pageSize.getHeight() - 100);
-  doc.line(pageWidth - margin - 160, y, pageWidth - margin, y);
-  doc.setFontSize(9);
-  doc.text("Authorised Signature", pageWidth - margin - 160, y + 14);
+  doc.text("SGST", cols[1].x + 4, y + 10);
+  doc.text(formatMoney(sgstAmount), cols[7].x + cols[7].width - 4, y + 10, {
+    align: "right",
+  });
+  y += 14;
 
-  doc.save(`${bill.bill_number || "invoice"}.pdf`);
+  doc.text("Less: ROUND OFF", cols[1].x + 4, y + 10);
+  doc.text(
+    `${roundoff < 0 ? "(-)" : ""}${formatMoney(Math.abs(roundoff))}`,
+    cols[7].x + cols[7].width - 4,
+    y + 10,
+    { align: "right" },
+  );
+  y += 16;
+
+  const tableBottomY = Math.max(y, margin + 480);
+
+  // Draw Vertical Table Column Dividers down to table bottom
+  cols.forEach((col, idx) => {
+    if (idx > 0) {
+      doc.line(col.x, tableContentTopY - 24, col.x, tableBottomY);
+    }
+  });
+
+  y = tableBottomY;
+  doc.line(margin, y, pageWidth - margin, y);
+
+  // Grand Total Row
+  doc.setFont("helvetica", "bold");
+  doc.text("Total", cols[1].x + 4, y + 12);
+  doc.text(
+    `Rs. ${formatMoney(grandTotal)}`,
+    cols[7].x + cols[7].width - 4,
+    y + 12,
+    { align: "right" },
+  );
+  y += 18;
+  doc.line(margin, y, pageWidth - margin, y);
+
+  // Amount Chargeable in Words
+  doc.setFontSize(7.5);
+  doc.setFont("helvetica", "normal");
+  doc.text("Amount Chargeable (in words)", margin + 6, y + 10);
+  doc.setFont("helvetica", "bold");
+  doc.text(numberToWordsIndian(grandTotal), margin + 6, y + 20);
+  y += 28;
+  doc.line(margin, y, pageWidth - margin, y);
+
+  // HSN/SAC Tax Summary Table
+  const hsnTableTopY = y;
+  const hsnCols = [
+    { name: "HSN/SAC", x: margin, width: 75, align: "center" },
+    { name: "Taxable Value", x: margin + 75, width: 90, align: "right" },
+    { name: "CGST Rate", x: margin + 165, width: 55, align: "center" },
+    { name: "CGST Amount", x: margin + 220, width: 80, align: "right" },
+    { name: "SGST Rate", x: margin + 300, width: 55, align: "center" },
+    { name: "SGST Amount", x: margin + 355, width: 80, align: "right" },
+    {
+      name: "Total Tax Amount",
+      x: margin + 435,
+      width: boxWidth - 435,
+      align: "right",
+    },
+  ];
+
+  doc.setFont("helvetica", "bold");
+  hsnCols.forEach((col, idx) => {
+    let textX = col.x + col.width / 2;
+    if (col.align === "right") textX = col.x + col.width - 4;
+    doc.text(col.name, textX, hsnTableTopY + 10, { align: col.align });
+    if (idx > 0) doc.line(col.x, hsnTableTopY, col.x, hsnTableTopY + 32);
+  });
+
+  y += 16;
+  doc.line(margin, y, pageWidth - margin, y);
+
+  // HSN Summary Data Row
+  const totalTax = cgstAmount + sgstAmount;
+  doc.setFont("helvetica", "normal");
+  doc.text("992971", hsnCols[0].x + hsnCols[0].width / 2, y + 10, {
+    align: "center",
+  });
+  doc.text(formatMoney(subtotal), hsnCols[1].x + hsnCols[1].width - 4, y + 10, {
+    align: "right",
+  });
+  doc.text(`${cgstRate}%`, hsnCols[2].x + hsnCols[2].width / 2, y + 10, {
+    align: "center",
+  });
+  doc.text(
+    formatMoney(cgstAmount),
+    hsnCols[3].x + hsnCols[3].width - 4,
+    y + 10,
+    { align: "right" },
+  );
+  doc.text(`${sgstRate}%`, hsnCols[4].x + hsnCols[4].width / 2, y + 10, {
+    align: "center",
+  });
+  doc.text(
+    formatMoney(sgstAmount),
+    hsnCols[5].x + hsnCols[5].width - 4,
+    y + 10,
+    { align: "right" },
+  );
+  doc.text(formatMoney(totalTax), hsnCols[6].x + hsnCols[6].width - 4, y + 10, {
+    align: "right",
+  });
+
+  y += 16;
+  doc.line(margin, y, pageWidth - margin, y);
+
+  // HSN Summary Total Row
+  doc.setFont("helvetica", "bold");
+  doc.text("Total", hsnCols[0].x + 6, y + 10);
+  doc.text(formatMoney(subtotal), hsnCols[1].x + hsnCols[1].width - 4, y + 10, {
+    align: "right",
+  });
+  doc.text(
+    formatMoney(cgstAmount),
+    hsnCols[3].x + hsnCols[3].width - 4,
+    y + 10,
+    { align: "right" },
+  );
+  doc.text(
+    formatMoney(sgstAmount),
+    hsnCols[5].x + hsnCols[5].width - 4,
+    y + 10,
+    { align: "right" },
+  );
+  doc.text(formatMoney(totalTax), hsnCols[6].x + hsnCols[6].width - 4, y + 10, {
+    align: "right",
+  });
+
+  y += 16;
+  doc.line(margin, y, pageWidth - margin, y);
+
+  // Tax Amount in Words
+  doc.setFont("helvetica", "normal");
+  doc.text("Tax Amount (in words):", margin + 6, y + 10);
+  doc.setFont("helvetica", "bold");
+  doc.text(numberToWordsIndian(totalTax), margin + 100, y + 10);
+
+  y += 16;
+  doc.line(margin, y, pageWidth - margin, y);
+
+  // Legal Declarations & Bank Details Footer
+  const footerTopY = y;
+  doc.setFont("helvetica", "normal");
+  doc.text(`Company's PAN: AAACF5063D`, margin + 6, footerTopY + 10);
+  doc.setFont("helvetica", "bold");
+  doc.text("Declaration", margin + 6, footerTopY + 22);
+  doc.setFont("helvetica", "normal");
+  doc.text(
+    "We declare that this invoice shows the actual price of the goods",
+    margin + 6,
+    footerTopY + 32,
+  );
+  doc.text(
+    "described and that all particulars are true and correct.",
+    margin + 6,
+    footerTopY + 42,
+  );
+
+  doc.setFont("helvetica", "bold");
+  doc.text("Company's Bank Details", margin + 6, footerTopY + 56);
+  doc.setFont("helvetica", "normal");
+  doc.text(
+    `Bank Name: ${bill.wh_bank || "KOTAK MAHINDRA BANK 05532970000011"}`,
+    margin + 6,
+    footerTopY + 66,
+  );
+  doc.text(
+    `Branch & IFS Code: ${bill.wh_ifsc || "Dilsukhnagar & KKBK0007446"}`,
+    margin + 6,
+    footerTopY + 76,
+  );
+
+  // Authorised Signatory Block
+  const sigX = pageWidth - margin - 200;
+  doc.line(sigX, footerTopY, sigX, pageHeight - margin);
+
+  doc.text(
+    `for ${bill.wh_company_name || currentUser.company_name || "FOSTER COLD STORAGE PVT LTD"}`,
+    sigX + 10,
+    footerTopY + 14,
+  );
+  doc.setFont("helvetica", "italic");
+  doc.text(
+    "This is a Computer Generated Invoice",
+    margin + 6,
+    pageHeight - margin - 8,
+  );
+
+  doc.setFont("helvetica", "normal");
+  doc.text("Authorised Signatory", sigX + 50, pageHeight - margin - 8);
+
+  doc.save(`${bill.bill_number || "Invoice"}.pdf`);
 }
