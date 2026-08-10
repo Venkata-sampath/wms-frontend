@@ -470,26 +470,26 @@ async function renderCreate(container, currentUser) {
               <input type="number" step="0.01" id="subtotal-input" class="form-control bg-light fw-bold" readonly value="0.00">
             </div>
             <div class="col-md-4">
-              <label class="form-label small fw-semibold text-muted">CGST Amount (Auto-Calculated)</label>
+              <label class="form-label small fw-semibold text-muted">Total CGST Amount</label>
               <input type="number" step="0.01" id="cgst-amount-input" class="form-control bg-light" readonly value="0.00">
             </div>
             <div class="col-md-4">
-              <label class="form-label small fw-semibold text-muted">SGST Amount (Auto-Calculated)</label>
+              <label class="form-label small fw-semibold text-muted">Total SGST Amount</label>
               <input type="number" step="0.01" id="sgst-amount-input" class="form-control bg-light" readonly value="0.00">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label small fw-semibold text-muted">Round Off (+ / -)</label>
               <input type="number" step="0.01" id="roundoff-input" class="form-control bg-light" value="0.00">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label small fw-semibold text-muted">Discount</label>
               <input type="number" step="0.01" id="discount-input" class="form-control bg-light" value="0.00">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label small fw-semibold text-muted">Other Charges</label>
               <input type="number" step="0.01" id="other-charges-input" class="form-control bg-light" value="0.00">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label small fw-semibold text-muted">Grand Total</label>
               <input type="number" step="0.01" id="grand-total-input" class="form-control bg-light fw-bold fs-5 text-primary" readonly value="0.00">
             </div>
@@ -1137,20 +1137,44 @@ function renderReadOnlyBody(
       "",
       "Charges Summary",
       `
-      <div class="table-responsive">
+      <div class="table-responsive border rounded">
         <table class="table table-sm mb-0">
           <thead class="table-light small text-uppercase text-secondary">
-            <tr><th>Description</th><th>HSN/SAC</th><th class="text-end">Amount</th></tr>
+            <tr>
+              <th class="ps-3">Description</th>
+              <th>HSN/SAC</th>
+              <th>Qty</th>
+              <th>Unit</th>
+              <th>Rate</th>
+              <th class="text-end pe-3">Amount</th>
+            </tr>
           </thead>
           <tbody>
             ${items
               .map(
                 (it) => `
-              <tr>
-                <td style="white-space: pre-line;">${escapeHtml(it.description || it.main_description)}</td>
-                <td>${escapeHtml(it.hsn_sac || "—")}</td>
-                <td class="text-end fw-semibold">${formatMoney(it.amount)}</td>
+              <tr class="table-light">
+                <td class="ps-3 fw-bold">${escapeHtml(it.main_description || it.description)}</td>
+                <td class="fw-bold">${escapeHtml(it.hsn_sac || "—")}</td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td class="text-end pe-3 fw-bold">${formatMoney(it.amount)}</td>
               </tr>
+              ${(it.sub_items || [])
+                .map(
+                  (sub) => `
+                <tr>
+                  <td class="ps-4 text-muted border-0 pb-1 pt-1"><small>${escapeHtml(sub.sub_description)}</small></td>
+                  <td class="border-0 pb-1 pt-1"></td>
+                  <td class="border-0 pb-1 pt-1"><small>${sub.quantity || ""}</small></td>
+                  <td class="border-0 pb-1 pt-1"><small>${escapeHtml(sub.unit || "")}</small></td>
+                  <td class="border-0 pb-1 pt-1"><small>${sub.rate || ""}</small></td>
+                  <td class="text-end pe-3 border-0 pb-1 pt-1"><small>${formatMoney(sub.amount)}</small></td>
+                </tr>
+              `,
+                )
+                .join("")}
             `,
               )
               .join("")}
@@ -1425,26 +1449,26 @@ async function renderEditForm(
             <input type="number" step="0.01" id="edit-subtotal-input" class="form-control bg-light fw-bold" value="${bill.subtotal ?? 0}" readonly>
           </div>
           <div class="col-md-4">
-            <label class="form-label small fw-semibold text-muted">CGST Amount</label>
+            <label class="form-label small fw-semibold text-muted">Total CGST Amount</label>
             <input type="number" step="0.01" id="edit-cgst-amount-input" class="form-control bg-light" value="${bill.cgst_amount ?? 0}" readonly>
           </div>
           <div class="col-md-4">
-            <label class="form-label small fw-semibold text-muted">SGST Amount</label>
+            <label class="form-label small fw-semibold text-muted">Total SGST Amount</label>
             <input type="number" step="0.01" id="edit-sgst-amount-input" class="form-control bg-light" value="${bill.sgst_amount ?? 0}" readonly>
           </div>
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label class="form-label small fw-semibold text-muted">Round Off (+ / -)</label>
             <input type="number" step="0.01" id="edit-roundoff-input" class="form-control bg-light" value="${bill.round_off ?? 0}">
           </div>
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label class="form-label small fw-semibold text-muted">Discount</label>
             <input type="number" step="0.01" id="edit-discount-input" class="form-control bg-light" value="${bill.discount ?? 0}">
           </div>
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label class="form-label small fw-semibold text-muted">Other Charges</label>
             <input type="number" step="0.01" id="edit-other-charges-input" class="form-control bg-light" value="${bill.other_charges ?? 0}">
           </div>
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label class="form-label small fw-semibold text-muted">Grand Total</label>
             <input type="number" step="0.01" id="edit-grand-total-input" class="form-control bg-light fw-bold fs-5 text-primary" value="${bill.grand_total ?? 0}" readonly>
           </div>
