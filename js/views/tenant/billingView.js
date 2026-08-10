@@ -2519,6 +2519,9 @@ async function generateInvoicePdf(currentUser, bill, items) {
 
   addHeaderAndOuterBox();
 
+  // Determine Tax Mode (Intra vs Inter)
+  const isInterState = bill.tax_type === "inter";
+
   // Header Left Block (Warehouse Info)
   const midX = margin + 260;
   const headerTopY = y;
@@ -2542,15 +2545,21 @@ async function generateInvoicePdf(currentUser, bill, items) {
     doc.text(addrLines, margin + 6, leftY);
     leftY += addrLines.length * 9;
   }
-  doc.text(`FSSAI NO: ${bill.wh_fssai || "13617012000235"}`, margin + 6, leftY);
-  leftY += 10;
+  if (bill.wh_fssai) {
+    doc.text(`FSSAI NO: ${bill.wh_fssai}`, margin + 6, leftY);
+    leftY += 10;
+  }
   doc.text(
-    `GSTIN/UIN: ${bill.wh_gstin || currentUser.gstin || "36AAACF5063D2ZY"}`,
+    `GSTIN/UIN: ${bill.wh_gstin || currentUser.gstin || "—"}`,
     margin + 6,
     leftY,
   );
   leftY += 10;
-  doc.text(`State Name: Telangana, Code: 36`, margin + 6, leftY);
+  doc.text(
+    `State Name: ${bill.wh_state_name || "—"}, Code: ${bill.wh_state_code || "—"}`,
+    margin + 6,
+    leftY,
+  );
   leftY += 10;
 
   // Header Right Block Grid
@@ -2573,16 +2582,22 @@ async function generateInvoicePdf(currentUser, bill, items) {
   doc.line(midX, rightY, pageWidth - margin, rightY);
 
   doc.text(`Delivery Note`, metaCols[0] + 4, rightY + 10);
+  doc.text(`${bill.delivery_note || "—"}`, metaCols[0] + 4, rightY + 19);
+
   doc.text(`Mode/Terms of Payment`, metaCols[1] + 4, rightY + 10);
   doc.setFont("helvetica", "bold");
-  doc.text(`${bill.due_date || "30 Days"}`, metaCols[1] + 4, rightY + 19);
+  doc.text(`${bill.due_date || "—"}`, metaCols[1] + 4, rightY + 19);
   doc.setFont("helvetica", "normal");
 
   rightY += 24;
   doc.line(midX, rightY, pageWidth - margin, rightY);
 
   doc.text(`Reference No. & Date.`, metaCols[0] + 4, rightY + 10);
-  doc.text(`${bill.reference_number || "—"}`, metaCols[0] + 4, rightY + 19);
+  doc.text(
+    `${bill.reference_number || "—"}${bill.reference_date ? " dt. " + bill.reference_date : ""}`,
+    metaCols[0] + 4,
+    rightY + 19,
+  );
 
   doc.text(`Other References`, metaCols[1] + 4, rightY + 10);
   doc.text(
@@ -2595,13 +2610,19 @@ async function generateInvoicePdf(currentUser, bill, items) {
   doc.line(midX, rightY, pageWidth - margin, rightY);
 
   doc.text(`Buyer's Order No.`, metaCols[0] + 4, rightY + 10);
+  doc.text(`${bill.buyers_order_no || "—"}`, metaCols[0] + 4, rightY + 19);
+
   doc.text(`Dated`, metaCols[1] + 4, rightY + 10);
+  doc.text(`${bill.buyers_order_date || "—"}`, metaCols[1] + 4, rightY + 19);
 
   rightY += 24;
   doc.line(midX, rightY, pageWidth - margin, rightY);
 
   doc.text(`Dispatch Doc No.`, metaCols[0] + 4, rightY + 10);
+  doc.text(`${bill.dispatch_doc_no || "—"}`, metaCols[0] + 4, rightY + 19);
+
   doc.text(`Delivery Note Date`, metaCols[1] + 4, rightY + 10);
+  doc.text(`${bill.delivery_note_date || "—"}`, metaCols[1] + 4, rightY + 19);
 
   y = headerTopY + 120;
   doc.line(margin, y, pageWidth - margin, y);
@@ -2628,17 +2649,26 @@ async function generateInvoicePdf(currentUser, bill, items) {
     buyerY,
   );
   buyerY += 10;
-  doc.text(`State Name: Telangana, Code: 36`, margin + 6, buyerY);
+  doc.text(
+    `State Name: ${bill.buyer_state_name || "—"}, Code: ${bill.buyer_state_code || "—"}`,
+    margin + 6,
+    buyerY,
+  );
   buyerY += 10;
 
   // Buyer Right Block
   doc.line(midX, buyerTopY, midX, buyerTopY + 50);
   doc.text(`Dispatched through`, metaCols[0] + 4, buyerTopY + 10);
+  doc.text(`${bill.dispatch_through || "—"}`, metaCols[0] + 4, buyerTopY + 19);
+
   doc.text(`Destination`, metaCols[1] + 4, buyerTopY + 10);
+  doc.text(`${bill.destination || "—"}`, metaCols[1] + 4, buyerTopY + 19);
+
   doc.line(midX, buyerTopY + 25, pageWidth - margin, buyerTopY + 25);
   doc.text(`Terms of Delivery`, metaCols[0] + 4, buyerTopY + 35);
+  doc.text(`${bill.terms_of_delivery || "—"}`, metaCols[0] + 4, buyerTopY + 44);
 
-  y = buyerTopY + 50;
+  y = Math.max(buyerY + 4, buyerTopY + 50);
   doc.line(margin, y, pageWidth - margin, y);
 
   // Tally Table Columns Definitions
@@ -2727,7 +2757,7 @@ async function generateInvoicePdf(currentUser, bill, items) {
 
     // Accumulate HSN Tax Map
     const hsnCode = item.hsn_sac || "992971";
-    const taxRate = Number(item.tax_rate) || 18;
+    const taxRate = Number(item.tax_rate) || 0;
     const itemAmount = Number(item.amount) || 0;
 
     if (!hsnMap[hsnCode]) {
@@ -2784,41 +2814,60 @@ async function generateInvoicePdf(currentUser, bill, items) {
     tableContentTopY = y;
   }
 
-  // Calculate totals and CGST / SGST breakdown
+  // Calculate totals and CGST/SGST/IGST breakdown
   const subtotal = Number(bill.subtotal) || 0;
 
   let totalCgst = 0;
   let totalSgst = 0;
+  let totalIgst = 0;
 
   Object.keys(hsnMap).forEach((code) => {
     const entry = hsnMap[code];
-    const cgst = (entry.taxable * (entry.taxRate / 2)) / 100;
-    const sgst = (entry.taxable * (entry.taxRate / 2)) / 100;
-    entry.cgst = cgst;
-    entry.sgst = sgst;
-    totalCgst += cgst;
-    totalSgst += sgst;
+    if (isInterState) {
+      const igst = (entry.taxable * entry.taxRate) / 100;
+      entry.igst = igst;
+      entry.cgst = 0;
+      entry.sgst = 0;
+      totalIgst += igst;
+    } else {
+      const cgst = (entry.taxable * (entry.taxRate / 2)) / 100;
+      const sgst = (entry.taxable * (entry.taxRate / 2)) / 100;
+      entry.cgst = cgst;
+      entry.sgst = sgst;
+      entry.igst = 0;
+      totalCgst += cgst;
+      totalSgst += sgst;
+    }
   });
 
   const roundoff = Number(bill.round_off) || 0;
   const grandTotal =
-    Number(bill.grand_total) || subtotal + totalCgst + totalSgst + roundoff;
+    Number(bill.grand_total) ||
+    subtotal + totalCgst + totalSgst + totalIgst + roundoff;
 
   // Render Subtotal & Taxes right under items list
   doc.setFont("helvetica", "bold");
   doc.setFontSize(7.5);
 
-  doc.text("CGST", cols[1].x + 4, y + 10);
-  doc.text(formatMoney(totalCgst), cols[7].x + cols[7].width - 4, y + 10, {
-    align: "right",
-  });
-  y += 12;
+  if (isInterState) {
+    doc.text("IGST", cols[1].x + 4, y + 10);
+    doc.text(formatMoney(totalIgst), cols[7].x + cols[7].width - 4, y + 10, {
+      align: "right",
+    });
+    y += 12;
+  } else {
+    doc.text("CGST", cols[1].x + 4, y + 10);
+    doc.text(formatMoney(totalCgst), cols[7].x + cols[7].width - 4, y + 10, {
+      align: "right",
+    });
+    y += 12;
 
-  doc.text("SGST", cols[1].x + 4, y + 10);
-  doc.text(formatMoney(totalSgst), cols[7].x + cols[7].width - 4, y + 10, {
-    align: "right",
-  });
-  y += 12;
+    doc.text("SGST", cols[1].x + 4, y + 10);
+    doc.text(formatMoney(totalSgst), cols[7].x + cols[7].width - 4, y + 10, {
+      align: "right",
+    });
+    y += 12;
+  }
 
   if (roundoff !== 0) {
     doc.text("Less: ROUND OFF", cols[1].x + 4, y + 10);
@@ -2868,22 +2917,39 @@ async function generateInvoicePdf(currentUser, bill, items) {
   y += 28;
   doc.line(margin, y, pageWidth - margin, y);
 
-  // HSN/SAC Tax Summary Table
+  // HSN/SAC Tax Summary Table (Dynamic layout based on Intra vs Inter state)
   const hsnTableTopY = y;
-  const hsnCols = [
-    { name: "HSN/SAC", x: margin, width: 70, align: "center" },
-    { name: "Taxable Value", x: margin + 70, width: 85, align: "right" },
-    { name: "CGST Rate", x: margin + 155, width: 55, align: "center" },
-    { name: "CGST Amount", x: margin + 210, width: 80, align: "right" },
-    { name: "SGST Rate", x: margin + 290, width: 55, align: "center" },
-    { name: "SGST Amount", x: margin + 345, width: 80, align: "right" },
-    {
-      name: "Total Tax Amount",
-      x: margin + 425,
-      width: boxWidth - 425,
-      align: "right",
-    },
-  ];
+  let hsnCols = [];
+
+  if (isInterState) {
+    hsnCols = [
+      { name: "HSN/SAC", x: margin, width: 100, align: "center" },
+      { name: "Taxable Value", x: margin + 100, width: 130, align: "right" },
+      { name: "IGST Rate", x: margin + 230, width: 80, align: "center" },
+      { name: "IGST Amount", x: margin + 310, width: 110, align: "right" },
+      {
+        name: "Total Tax Amount",
+        x: margin + 420,
+        width: boxWidth - 420,
+        align: "right",
+      },
+    ];
+  } else {
+    hsnCols = [
+      { name: "HSN/SAC", x: margin, width: 70, align: "center" },
+      { name: "Taxable Value", x: margin + 70, width: 85, align: "right" },
+      { name: "CGST Rate", x: margin + 155, width: 55, align: "center" },
+      { name: "CGST Amount", x: margin + 210, width: 80, align: "right" },
+      { name: "SGST Rate", x: margin + 290, width: 55, align: "center" },
+      { name: "SGST Amount", x: margin + 345, width: 80, align: "right" },
+      {
+        name: "Total Tax Amount",
+        x: margin + 425,
+        width: boxWidth - 425,
+        align: "right",
+      },
+    ];
+  }
 
   doc.setFont("helvetica", "bold");
   hsnCols.forEach((col, idx) => {
@@ -2901,48 +2967,75 @@ async function generateInvoicePdf(currentUser, bill, items) {
 
   Object.keys(hsnMap).forEach((code) => {
     const row = hsnMap[code];
-    const rowTaxTotal = row.cgst + row.sgst;
+    const rowTaxTotal = isInterState ? row.igst : row.cgst + row.sgst;
     hsnTaxSum += rowTaxTotal;
 
-    doc.text(code, hsnCols[0].x + hsnCols[0].width / 2, y + 10, {
-      align: "center",
-    });
-    doc.text(
-      formatMoney(row.taxable),
-      hsnCols[1].x + hsnCols[1].width - 4,
-      y + 10,
-      { align: "right" },
-    );
-    doc.text(
-      `${row.taxRate / 2}%`,
-      hsnCols[2].x + hsnCols[2].width / 2,
-      y + 10,
-      { align: "center" },
-    );
-    doc.text(
-      formatMoney(row.cgst),
-      hsnCols[3].x + hsnCols[3].width - 4,
-      y + 10,
-      { align: "right" },
-    );
-    doc.text(
-      `${row.taxRate / 2}%`,
-      hsnCols[4].x + hsnCols[4].width / 2,
-      y + 10,
-      { align: "center" },
-    );
-    doc.text(
-      formatMoney(row.sgst),
-      hsnCols[5].x + hsnCols[5].width - 4,
-      y + 10,
-      { align: "right" },
-    );
-    doc.text(
-      formatMoney(rowTaxTotal),
-      hsnCols[6].x + hsnCols[6].width - 4,
-      y + 10,
-      { align: "right" },
-    );
+    if (isInterState) {
+      doc.text(code, hsnCols[0].x + hsnCols[0].width / 2, y + 10, {
+        align: "center",
+      });
+      doc.text(
+        formatMoney(row.taxable),
+        hsnCols[1].x + hsnCols[1].width - 4,
+        y + 10,
+        { align: "right" },
+      );
+      doc.text(`${row.taxRate}%`, hsnCols[2].x + hsnCols[2].width / 2, y + 10, {
+        align: "center",
+      });
+      doc.text(
+        formatMoney(row.igst),
+        hsnCols[3].x + hsnCols[3].width - 4,
+        y + 10,
+        { align: "right" },
+      );
+      doc.text(
+        formatMoney(rowTaxTotal),
+        hsnCols[4].x + hsnCols[4].width - 4,
+        y + 10,
+        { align: "right" },
+      );
+    } else {
+      doc.text(code, hsnCols[0].x + hsnCols[0].width / 2, y + 10, {
+        align: "center",
+      });
+      doc.text(
+        formatMoney(row.taxable),
+        hsnCols[1].x + hsnCols[1].width - 4,
+        y + 10,
+        { align: "right" },
+      );
+      doc.text(
+        `${row.taxRate / 2}%`,
+        hsnCols[2].x + hsnCols[2].width / 2,
+        y + 10,
+        { align: "center" },
+      );
+      doc.text(
+        formatMoney(row.cgst),
+        hsnCols[3].x + hsnCols[3].width - 4,
+        y + 10,
+        { align: "right" },
+      );
+      doc.text(
+        `${row.taxRate / 2}%`,
+        hsnCols[4].x + hsnCols[4].width / 2,
+        y + 10,
+        { align: "center" },
+      );
+      doc.text(
+        formatMoney(row.sgst),
+        hsnCols[5].x + hsnCols[5].width - 4,
+        y + 10,
+        { align: "right" },
+      );
+      doc.text(
+        formatMoney(rowTaxTotal),
+        hsnCols[6].x + hsnCols[6].width - 4,
+        y + 10,
+        { align: "right" },
+      );
+    }
 
     y += 14;
   });
@@ -2955,24 +3048,40 @@ async function generateInvoicePdf(currentUser, bill, items) {
   doc.text(formatMoney(subtotal), hsnCols[1].x + hsnCols[1].width - 4, y + 10, {
     align: "right",
   });
-  doc.text(
-    formatMoney(totalCgst),
-    hsnCols[3].x + hsnCols[3].width - 4,
-    y + 10,
-    { align: "right" },
-  );
-  doc.text(
-    formatMoney(totalSgst),
-    hsnCols[5].x + hsnCols[5].width - 4,
-    y + 10,
-    { align: "right" },
-  );
-  doc.text(
-    formatMoney(hsnTaxSum),
-    hsnCols[6].x + hsnCols[6].width - 4,
-    y + 10,
-    { align: "right" },
-  );
+
+  if (isInterState) {
+    doc.text(
+      formatMoney(totalIgst),
+      hsnCols[3].x + hsnCols[3].width - 4,
+      y + 10,
+      { align: "right" },
+    );
+    doc.text(
+      formatMoney(hsnTaxSum),
+      hsnCols[4].x + hsnCols[4].width - 4,
+      y + 10,
+      { align: "right" },
+    );
+  } else {
+    doc.text(
+      formatMoney(totalCgst),
+      hsnCols[3].x + hsnCols[3].width - 4,
+      y + 10,
+      { align: "right" },
+    );
+    doc.text(
+      formatMoney(totalSgst),
+      hsnCols[5].x + hsnCols[5].width - 4,
+      y + 10,
+      { align: "right" },
+    );
+    doc.text(
+      formatMoney(hsnTaxSum),
+      hsnCols[6].x + hsnCols[6].width - 4,
+      y + 10,
+      { align: "right" },
+    );
+  }
 
   y += 14;
   doc.line(margin, y, pageWidth - margin, y);
@@ -2994,7 +3103,10 @@ async function generateInvoicePdf(currentUser, bill, items) {
   // Legal Declarations & Bank Details Footer
   const footerTopY = y;
   doc.setFont("helvetica", "normal");
-  doc.text(`Company's PAN: AAACF5063D`, margin + 6, footerTopY + 10);
+  const gstinVal = bill.wh_gstin || currentUser.gstin || "";
+  const panVal = gstinVal.length >= 10 ? gstinVal.substring(2, 12) : "—";
+  doc.text(`Company's PAN: ${panVal}`, margin + 6, footerTopY + 10);
+
   doc.setFont("helvetica", "bold");
   doc.text("Declaration", margin + 6, footerTopY + 20);
   doc.setFont("helvetica", "normal");
@@ -3012,13 +3124,18 @@ async function generateInvoicePdf(currentUser, bill, items) {
   doc.setFont("helvetica", "bold");
   doc.text("Company's Bank Details", margin + 6, footerTopY + 54);
   doc.setFont("helvetica", "normal");
+
+  const bankNameStr = bill.wh_bank_name || "—";
+  const accNumStr = bill.wh_account_number
+    ? ` (A/C: ${bill.wh_account_number})`
+    : "";
   doc.text(
-    `Bank Name: ${bill.wh_bank || "KOTAK MAHINDRA BANK 05532970000011"}`,
+    `Bank Name: ${bankNameStr}${accNumStr}`,
     margin + 6,
     footerTopY + 64,
   );
   doc.text(
-    `Branch & IFS Code: ${bill.wh_ifsc || "Dilsukhnagar & KKBK0007446"}`,
+    `Branch & IFS Code: ${bill.wh_branch_ifsc || "—"}`,
     margin + 6,
     footerTopY + 74,
   );
