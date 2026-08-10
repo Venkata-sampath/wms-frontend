@@ -467,26 +467,34 @@ async function renderCreate(container, currentUser) {
               <input type="text" id="wh-address-input" class="form-control bg-light" value="${escapeHtml(currentUser.address || "")}">
             </div>
             <div class="col-md-4">
-              <label class="form-label small fw-semibold text-muted">State Name <span class="text-muted" style="font-weight:400;">(auto from GSTIN, editable)</span></label>
+              <label class="form-label small fw-semibold text-muted">State Name <span class="text-muted" style="font-weight:400;">(auto, editable)</span></label>
               <input type="text" id="wh-state-name-input" class="form-control bg-light">
             </div>
             <div class="col-md-2">
               <label class="form-label small fw-semibold text-muted">State Code</label>
               <input type="text" id="wh-state-code-input" class="form-control bg-light" maxlength="2">
             </div>
-            <div class="col-md-6">
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold text-muted">Contact Number</label>
+              <input type="text" id="wh-contact-input" class="form-control bg-light" placeholder="e.g. +91 9876543210">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold text-muted">Email Address</label>
+              <input type="email" id="wh-email-input" class="form-control bg-light" placeholder="e.g. billing@warehouse.com">
+            </div>
+            <div class="col-md-3">
               <label class="form-label small fw-semibold text-muted">FSSAI NO</label>
               <input type="text" id="wh-fssai-input" class="form-control bg-light" placeholder="e.g. 13617012000235">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label small fw-semibold text-muted">Bank Name</label>
               <input type="text" id="wh-bank-name-input" class="form-control bg-light" placeholder="e.g. KOTAK MAHINDRA BANK">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label small fw-semibold text-muted">Account Number</label>
               <input type="text" id="wh-account-number-input" class="form-control bg-light" placeholder="e.g. 05532970000011">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label small fw-semibold text-muted">Branch & IFS Code</label>
               <input type="text" id="wh-ifsc-input" class="form-control bg-light" placeholder="e.g. Dilsukhnagar & KKBK0007446">
             </div>
@@ -526,23 +534,11 @@ async function renderCreate(container, currentUser) {
               <label class="form-label small fw-semibold text-muted">Buyer Address</label>
               <input type="text" id="buyer-address-input" class="form-control bg-light">
             </div>
-            <div class="col-md-3">
-              <label class="form-label small fw-semibold text-muted">Contact Person</label>
-              <input type="text" id="buyer-contact-input" class="form-control bg-light">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label small fw-semibold text-muted">Phone</label>
-              <input type="text" id="buyer-phone-input" class="form-control bg-light">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label small fw-semibold text-muted">Email</label>
-              <input type="email" id="buyer-email-input" class="form-control bg-light">
-            </div>
-            <div class="col-md-3">
+            <div class="col-md-4">
               <label class="form-label small fw-semibold text-muted">State Name <span class="text-muted" style="font-weight:400;">(auto, editable)</span></label>
               <input type="text" id="buyer-state-name-input" class="form-control bg-light">
             </div>
-            <div class="col-md-6">
+            <div class="col-md-2">
               <label class="form-label small fw-semibold text-muted">State Code</label>
               <input type="text" id="buyer-state-code-input" class="form-control bg-light" maxlength="2">
             </div>
@@ -1136,17 +1132,14 @@ async function renderCreate(container, currentUser) {
       wh_account_number: document
         .getElementById("wh-account-number-input")
         .value.trim(),
+      wh_contact: document.getElementById("wh-contact-input").value.trim(),
+      wh_email: document.getElementById("wh-email-input").value.trim(),
       wh_branch_ifsc: document.getElementById("wh-ifsc-input").value.trim(),
       buyer_name: document.getElementById("buyer-name-input").value.trim(),
       buyer_gstin: document.getElementById("buyer-gstin-input").value.trim(),
       buyer_address: document
         .getElementById("buyer-address-input")
         .value.trim(),
-      buyer_contact: document
-        .getElementById("buyer-contact-input")
-        .value.trim(),
-      buyer_phone: document.getElementById("buyer-phone-input").value.trim(),
-      buyer_email: document.getElementById("buyer-email-input").value.trim(),
       buyer_state_name: document
         .getElementById("buyer-state-name-input")
         .value.trim(),
@@ -1647,19 +1640,27 @@ async function renderEditForm(
             <label class="form-label small fw-semibold text-muted">State Code</label>
             <input type="text" id="edit-wh-state-code-input" class="form-control bg-light" maxlength="2" value="${escapeHtml(bill.wh_state_code || "")}">
           </div>
-          <div class="col-md-6">
-            <label class="form-label small fw-semibold text-muted">FSSAI NO</label>
-            <input type="text" id="edit-wh-fssai-input" class="form-control bg-light" value="${escapeHtml(bill.wh_fssai || "")}" placeholder="e.g. 13617012000235">
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold text-muted">Contact Number</label>
+            <input type="text" id="edit-wh-contact-input" class="form-control bg-light" value="${escapeHtml(bill.wh_contact || "")}">
           </div>
-          <div class="col-md-4">
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold text-muted">Email Address</label>
+            <input type="email" id="edit-wh-email-input" class="form-control bg-light" value="${escapeHtml(bill.wh_email || "")}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold text-muted">FSSAI NO</label>
+            <input type="text" id="edit-wh-fssai-input" class="form-control bg-light" value="${escapeHtml(bill.wh_fssai || "")}">
+          </div>
+          <div class="col-md-3">
             <label class="form-label small fw-semibold text-muted">Bank Name</label>
             <input type="text" id="edit-wh-bank-name-input" class="form-control bg-light" value="${escapeHtml(bill.wh_bank_name || "")}">
           </div>
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label class="form-label small fw-semibold text-muted">Account Number</label>
             <input type="text" id="edit-wh-account-number-input" class="form-control bg-light" value="${escapeHtml(bill.wh_account_number || "")}">
           </div>
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label class="form-label small fw-semibold text-muted">Branch & IFS Code</label>
             <input type="text" id="edit-wh-ifsc-input" class="form-control bg-light" value="${escapeHtml(bill.wh_branch_ifsc || "")}">
           </div>
@@ -1699,23 +1700,11 @@ async function renderEditForm(
             <label class="form-label small fw-semibold text-muted">Buyer Address</label>
             <input type="text" id="edit-buyer-address-input" class="form-control bg-light" value="${escapeHtml(bill.buyer_address || "")}">
           </div>
-          <div class="col-md-3">
-            <label class="form-label small fw-semibold text-muted">Contact Person</label>
-            <input type="text" id="edit-buyer-contact-input" class="form-control bg-light" value="${escapeHtml(bill.buyer_contact || "")}">
-          </div>
-          <div class="col-md-3">
-            <label class="form-label small fw-semibold text-muted">Phone</label>
-            <input type="text" id="edit-buyer-phone-input" class="form-control bg-light" value="${escapeHtml(bill.buyer_phone || "")}">
-          </div>
-          <div class="col-md-3">
-            <label class="form-label small fw-semibold text-muted">Email</label>
-            <input type="email" id="edit-buyer-email-input" class="form-control bg-light" value="${escapeHtml(bill.buyer_email || "")}">
-          </div>
-          <div class="col-md-3">
+          <div class="col-md-4">
             <label class="form-label small fw-semibold text-muted">State Name <span class="text-muted" style="font-weight:400;">(auto, editable)</span></label>
             <input type="text" id="edit-buyer-state-name-input" class="form-control bg-light" value="${escapeHtml(bill.buyer_state_name || "")}">
           </div>
-          <div class="col-md-6">
+          <div class="col-md-2">
             <label class="form-label small fw-semibold text-muted">State Code</label>
             <input type="text" id="edit-buyer-state-code-input" class="form-control bg-light" maxlength="2" value="${escapeHtml(bill.buyer_state_code || "")}">
           </div>
@@ -2311,6 +2300,10 @@ async function renderEditForm(
         wh_account_number: document
           .getElementById("edit-wh-account-number-input")
           .value.trim(),
+        wh_contact: document
+          .getElementById("edit-wh-contact-input")
+          .value.trim(),
+        wh_email: document.getElementById("edit-wh-email-input").value.trim(),
         wh_branch_ifsc: document
           .getElementById("edit-wh-ifsc-input")
           .value.trim(),
@@ -2322,15 +2315,6 @@ async function renderEditForm(
           .value.trim(),
         buyer_address: document
           .getElementById("edit-buyer-address-input")
-          .value.trim(),
-        buyer_contact: document
-          .getElementById("edit-buyer-contact-input")
-          .value.trim(),
-        buyer_phone: document
-          .getElementById("edit-buyer-phone-input")
-          .value.trim(),
-        buyer_email: document
-          .getElementById("edit-buyer-email-input")
           .value.trim(),
         buyer_state_name: document
           .getElementById("edit-buyer-state-name-input")
@@ -2507,7 +2491,8 @@ async function generateInvoicePdf(currentUser, bill, items) {
   function addHeaderAndOuterBox() {
     doc.setLineWidth(0.75);
     doc.setDrawColor(0);
-    doc.rect(margin, margin, boxWidth, pageHeight - margin * 2);
+    // Draw outer box leaving room at bottom for "Computer Generated Invoice" text
+    doc.rect(margin, margin, boxWidth, pageHeight - margin * 2 - 15);
 
     y = margin;
     doc.setFontSize(10);
@@ -2519,13 +2504,13 @@ async function generateInvoicePdf(currentUser, bill, items) {
 
   addHeaderAndOuterBox();
 
-  // Determine Tax Mode (Intra vs Inter)
   const isInterState = bill.tax_type === "inter";
 
-  // Header Left Block (Warehouse Info)
-  const midX = margin + 260;
+  // Top Section: Split exact 50% width
+  const midX = margin + boxWidth / 2; // Exact center vertical divider
   const headerTopY = y;
 
+  // 1. TOP LEFT: Warehouse Info
   doc.setFontSize(9);
   doc.setFont("helvetica", "bold");
   const compName =
@@ -2540,7 +2525,7 @@ async function generateInvoicePdf(currentUser, bill, items) {
   if (bill.wh_address || currentUser.address) {
     const addrLines = doc.splitTextToSize(
       bill.wh_address || currentUser.address,
-      245,
+      boxWidth / 2 - 15,
     );
     doc.text(addrLines, margin + 6, leftY);
     leftY += addrLines.length * 9;
@@ -2561,85 +2546,107 @@ async function generateInvoicePdf(currentUser, bill, items) {
     leftY,
   );
   leftY += 10;
+  if (bill.wh_contact || bill.wh_email) {
+    doc.text(
+      `Contact: ${bill.wh_contact || "—"} | ${bill.wh_email || "—"}`,
+      margin + 6,
+      leftY,
+    );
+    leftY += 10;
+  }
 
-  // Header Right Block Grid
-  doc.line(midX, headerTopY, midX, headerTopY + 120);
-
+  // 2. TOP RIGHT: Invoice Metadata (5 Rows x 2 Columns Grid with Vertical Divider)
   let rightY = headerTopY;
-  const metaCols = [midX, midX + 130];
+  const col1X = midX + 4;
+  const col2X = midX + boxWidth / 4;
 
-  doc.text(`Invoice No.`, metaCols[0] + 4, rightY + 10);
+  // Row 1
+  doc.text(`Invoice No.`, col1X, rightY + 9);
   doc.setFont("helvetica", "bold");
-  doc.text(`${bill.invoice_number}`, metaCols[0] + 4, rightY + 19);
+  doc.text(`${bill.invoice_number}`, col1X, rightY + 18);
   doc.setFont("helvetica", "normal");
 
-  doc.text(`Dated`, metaCols[1] + 4, rightY + 10);
+  doc.text(`Dated`, col2X + 4, rightY + 9);
   doc.setFont("helvetica", "bold");
-  doc.text(`${bill.invoice_date || "—"}`, metaCols[1] + 4, rightY + 19);
+  doc.text(`${bill.invoice_date || "—"}`, col2X + 4, rightY + 18);
   doc.setFont("helvetica", "normal");
 
-  rightY += 24;
+  rightY += 22;
   doc.line(midX, rightY, pageWidth - margin, rightY);
 
-  doc.text(`Delivery Note`, metaCols[0] + 4, rightY + 10);
-  doc.text(`${bill.delivery_note || "—"}`, metaCols[0] + 4, rightY + 19);
+  // Row 2
+  doc.text(`Delivery Note`, col1X, rightY + 9);
+  doc.text(`${bill.delivery_note || "—"}`, col1X, rightY + 18);
 
-  doc.text(`Mode/Terms of Payment`, metaCols[1] + 4, rightY + 10);
+  doc.text(`Mode/Terms of Payment`, col2X + 4, rightY + 9);
   doc.setFont("helvetica", "bold");
-  doc.text(`${bill.due_date || "—"}`, metaCols[1] + 4, rightY + 19);
+  doc.text(`${bill.due_date || "—"}`, col2X + 4, rightY + 18);
   doc.setFont("helvetica", "normal");
 
-  rightY += 24;
+  rightY += 22;
   doc.line(midX, rightY, pageWidth - margin, rightY);
 
-  doc.text(`Reference No. & Date.`, metaCols[0] + 4, rightY + 10);
+  // Row 3
+  doc.text(`Reference No. & Date`, col1X, rightY + 9);
   doc.text(
     `${bill.reference_number || "—"}${bill.reference_date ? " dt. " + bill.reference_date : ""}`,
-    metaCols[0] + 4,
-    rightY + 19,
+    col1X,
+    rightY + 18,
   );
 
-  doc.text(`Other References`, metaCols[1] + 4, rightY + 10);
-  doc.text(
-    `${bill.other_ref || bill.notes || "—"}`,
-    metaCols[1] + 4,
-    rightY + 19,
-  );
+  doc.text(`Other References`, col2X + 4, rightY + 9);
+  doc.text(`${bill.other_ref || bill.notes || "—"}`, col2X + 4, rightY + 18);
 
-  rightY += 24;
+  rightY += 22;
   doc.line(midX, rightY, pageWidth - margin, rightY);
 
-  doc.text(`Buyer's Order No.`, metaCols[0] + 4, rightY + 10);
-  doc.text(`${bill.buyers_order_no || "—"}`, metaCols[0] + 4, rightY + 19);
+  // Row 4
+  doc.text(`Buyer's Order No.`, col1X, rightY + 9);
+  doc.text(`${bill.buyers_order_no || "—"}`, col1X, rightY + 18);
 
-  doc.text(`Dated`, metaCols[1] + 4, rightY + 10);
-  doc.text(`${bill.buyers_order_date || "—"}`, metaCols[1] + 4, rightY + 19);
+  doc.text(`Dated`, col2X + 4, rightY + 9);
+  doc.text(`${bill.buyers_order_date || "—"}`, col2X + 4, rightY + 18);
 
-  rightY += 24;
+  rightY += 22;
   doc.line(midX, rightY, pageWidth - margin, rightY);
 
-  doc.text(`Dispatch Doc No.`, metaCols[0] + 4, rightY + 10);
-  doc.text(`${bill.dispatch_doc_no || "—"}`, metaCols[0] + 4, rightY + 19);
+  // Row 5
+  doc.text(`Dispatch Doc No.`, col1X, rightY + 9);
+  doc.text(`${bill.dispatch_doc_no || "—"}`, col1X, rightY + 18);
 
-  doc.text(`Delivery Note Date`, metaCols[1] + 4, rightY + 10);
-  doc.text(`${bill.delivery_note_date || "—"}`, metaCols[1] + 4, rightY + 19);
+  doc.text(`Delivery Note Date`, col2X + 4, rightY + 9);
+  doc.text(`${bill.delivery_note_date || "—"}`, col2X + 4, rightY + 18);
 
-  y = headerTopY + 120;
-  doc.line(margin, y, pageWidth - margin, y);
+  rightY += 22;
 
-  // Buyer Block Section
-  const buyerTopY = y;
+  // Calculate dynamic line position for Buyer top line
+  const topBlockBottomY = Math.max(leftY + 4, rightY);
+
+  // Draw Vertical Divider between Warehouse and Invoice Metadata
+  doc.line(midX, headerTopY, midX, topBlockBottomY);
+  // Draw Vertical Separator inside Metadata Box (between Column 1 & Column 2)
+  doc.line(col2X, headerTopY, col2X, topBlockBottomY);
+
+  // Horizontal divider separating Top Warehouse/Invoice block from Buyer/Dispatch block
+  doc.line(margin, topBlockBottomY, pageWidth - margin, topBlockBottomY);
+
+  // 3. BOTTOM LEFT: Buyer Details
+  const buyerTopY = topBlockBottomY;
   doc.setFontSize(7.5);
   doc.setFont("helvetica", "normal");
-  doc.text("Buyer (Bill to)", margin + 6, y + 10);
+  doc.text("Buyer (Bill to)", margin + 6, buyerTopY + 10);
   doc.setFont("helvetica", "bold");
-  doc.text(`${bill.buyer_name || bill.client_name || ""}`, margin + 6, y + 20);
+  doc.text(
+    `${bill.buyer_name || bill.client_name || ""}`,
+    margin + 6,
+    buyerTopY + 20,
+  );
   doc.setFont("helvetica", "normal");
 
-  let buyerY = y + 29;
+  let buyerY = buyerTopY + 29;
   const buyerAddr = bill.buyer_address || bill.client_address;
   if (buyerAddr) {
-    const clientAddrLines = doc.splitTextToSize(buyerAddr, 245);
+    const clientAddrLines = doc.splitTextToSize(buyerAddr, boxWidth / 2 - 15);
     doc.text(clientAddrLines, margin + 6, buyerY);
     buyerY += clientAddrLines.length * 9;
   }
@@ -2656,22 +2663,43 @@ async function generateInvoicePdf(currentUser, bill, items) {
   );
   buyerY += 10;
 
-  // Buyer Right Block
-  doc.line(midX, buyerTopY, midX, buyerTopY + 50);
-  doc.text(`Dispatched through`, metaCols[0] + 4, buyerTopY + 10);
-  doc.text(`${bill.dispatch_through || "—"}`, metaCols[0] + 4, buyerTopY + 19);
+  // 4. BOTTOM RIGHT: Dispatch & Terms of Delivery (Enlarged)
+  let dispatchY = buyerTopY;
+  doc.text(`Dispatched through`, col1X, dispatchY + 10);
+  doc.text(`${bill.dispatch_through || "—"}`, col1X, dispatchY + 19);
 
-  doc.text(`Destination`, metaCols[1] + 4, buyerTopY + 10);
-  doc.text(`${bill.destination || "—"}`, metaCols[1] + 4, buyerTopY + 19);
+  doc.text(`Destination`, col2X + 4, dispatchY + 10);
+  doc.text(`${bill.destination || "—"}`, col2X + 4, dispatchY + 19);
 
-  doc.line(midX, buyerTopY + 25, pageWidth - margin, buyerTopY + 25);
-  doc.text(`Terms of Delivery`, metaCols[0] + 4, buyerTopY + 35);
-  doc.text(`${bill.terms_of_delivery || "—"}`, metaCols[0] + 4, buyerTopY + 44);
+  dispatchY += 25;
+  doc.line(midX, dispatchY, pageWidth - margin, dispatchY);
 
-  y = Math.max(buyerY + 4, buyerTopY + 50);
+  doc.text(`Terms of Delivery`, col1X, dispatchY + 10);
+  if (bill.terms_of_delivery) {
+    const deliveryLines = doc.splitTextToSize(
+      bill.terms_of_delivery,
+      boxWidth / 2 - 15,
+    );
+    doc.text(deliveryLines, col1X, dispatchY + 20);
+    dispatchY += deliveryLines.length * 9 + 15;
+  } else {
+    doc.text("—", col1X, dispatchY + 20);
+    dispatchY += 35; // Larger height for terms of delivery
+  }
+
+  // Determine dynamic bottom line for header section
+  const headerSectionBottomY = Math.max(buyerY + 4, dispatchY);
+
+  // Draw Vertical Divider between Buyer and Dispatch blocks
+  doc.line(midX, buyerTopY, midX, headerSectionBottomY);
+  // Draw vertical separator inside top half of dispatch block
+  doc.line(col2X, buyerTopY, col2X, buyerTopY + 25);
+
+  // Horizontal line separating Header from Main Goods Table
+  y = headerSectionBottomY;
   doc.line(margin, y, pageWidth - margin, y);
 
-  // Tally Table Columns Definitions
+  // Table Columns Setup
   const cols = [
     { name: "SI No", x: margin, width: 22, align: "center" },
     {
@@ -2719,11 +2747,9 @@ async function generateInvoicePdf(currentUser, bill, items) {
   let tableContentTopY = y;
   let itemIndex = 1;
 
-  // Track dynamic HSN tax map
   const hsnMap = {};
 
   items.forEach((item) => {
-    // Page Break Check for Main Item
     if (y > pageHeight - margin - 150) {
       cols.forEach((col, idx) => {
         if (idx > 0) doc.line(col.x, tableContentTopY - 24, col.x, y);
@@ -2741,7 +2767,14 @@ async function generateInvoicePdf(currentUser, bill, items) {
     doc.text(String(itemIndex++), cols[0].x + cols[0].width / 2, y + 10, {
       align: "center",
     });
-    doc.text(item.main_description || item.description, cols[1].x + 4, y + 10);
+
+    // Split main item description if long
+    const mainDescLines = doc.splitTextToSize(
+      item.main_description || item.description,
+      cols[1].width - 8,
+    );
+    doc.text(mainDescLines, cols[1].x + 4, y + 10);
+
     doc.text(item.hsn_sac || "992971", cols[2].x + cols[2].width / 2, y + 10, {
       align: "center",
     });
@@ -2755,7 +2788,6 @@ async function generateInvoicePdf(currentUser, bill, items) {
       );
     }
 
-    // Accumulate HSN Tax Map
     const hsnCode = item.hsn_sac || "992971";
     const taxRate = Number(item.tax_rate) || 0;
     const itemAmount = Number(item.amount) || 0;
@@ -2765,9 +2797,9 @@ async function generateInvoicePdf(currentUser, bill, items) {
     }
     hsnMap[hsnCode].taxable += itemAmount;
 
-    y += 14;
+    y += Math.max(14, mainDescLines.length * 9 + 4);
 
-    // Sub-descriptions rendering
+    // Sub-descriptions rendering with multi-line wrapping
     if (item.sub_items && item.sub_items.length > 0) {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7);
@@ -2787,11 +2819,15 @@ async function generateInvoicePdf(currentUser, bill, items) {
         }
 
         if (sub.sub_description) {
-          doc.text(sub.sub_description, cols[1].x + 4, y + 9);
-          y += 11;
+          // Constrain sub-description to Description column width
+          const subLines = doc.splitTextToSize(
+            sub.sub_description,
+            cols[1].width - 8,
+          );
+          doc.text(subLines, cols[1].x + 4, y + 9);
+          y += subLines.length * 9 + 2;
         }
 
-        // Auto-generated breakdown text line
         if (sub.quantity && sub.rate) {
           const breakdownStr = `${sub.quantity} ${sub.unit || "Units"} X ${sub.rate}/- Per ${sub.unit || "Unit"}`;
           doc.text(breakdownStr, cols[1].x + 4, y + 9);
@@ -2814,7 +2850,6 @@ async function generateInvoicePdf(currentUser, bill, items) {
     tableContentTopY = y;
   }
 
-  // Calculate totals and CGST/SGST/IGST breakdown
   const subtotal = Number(bill.subtotal) || 0;
 
   let totalCgst = 0;
@@ -2845,7 +2880,6 @@ async function generateInvoicePdf(currentUser, bill, items) {
     Number(bill.grand_total) ||
     subtotal + totalCgst + totalSgst + totalIgst + roundoff;
 
-  // Render Subtotal & Taxes right under items list
   doc.setFont("helvetica", "bold");
   doc.setFontSize(7.5);
 
@@ -2917,7 +2951,7 @@ async function generateInvoicePdf(currentUser, bill, items) {
   y += 28;
   doc.line(margin, y, pageWidth - margin, y);
 
-  // HSN/SAC Tax Summary Table (Dynamic layout based on Intra vs Inter state)
+  // HSN/SAC Tax Summary Table
   const hsnTableTopY = y;
   let hsnCols = [];
 
@@ -3142,22 +3176,26 @@ async function generateInvoicePdf(currentUser, bill, items) {
 
   // Authorised Signatory Block
   const sigX = pageWidth - margin - 200;
-  doc.line(sigX, footerTopY, sigX, pageHeight - margin);
+  doc.line(sigX, footerTopY, sigX, pageHeight - margin - 15);
 
   doc.text(
     `for ${bill.wh_company_name || currentUser.company_name || "FOSTER COLD STORAGE PVT LTD"}`,
     sigX + 10,
     footerTopY + 14,
   );
-  doc.setFont("helvetica", "italic");
-  doc.text(
-    "This is a Computer Generated Invoice",
-    margin + 6,
-    pageHeight - margin - 8,
-  );
 
   doc.setFont("helvetica", "normal");
-  doc.text("Authorised Signatory", sigX + 50, pageHeight - margin - 8);
+  doc.text("Authorised Signatory", sigX + 50, pageHeight - margin - 23);
+
+  // Centered External Invoice Declaration Footer
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(8);
+  doc.text(
+    "This is a Computer Generated Invoice",
+    pageWidth / 2,
+    pageHeight - margin + 2,
+    { align: "center" },
+  );
 
   doc.save(`${bill.invoice_number || "Invoice"}.pdf`);
 }
