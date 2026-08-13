@@ -1,3 +1,5 @@
+// api.js
+
 // =========================================================================
 // API GATEWAY CONFIGURATION
 // =========================================================================
@@ -308,13 +310,6 @@ export const Api = {
         picking_task_id: pickingTaskId,
         picked_items: pickedItemsArray,
       });
-    },
-  },
-
-  // --- REAL-TIME BALANCES AND TRACKING ---
-  inventory: {
-    async getSnapshot() {
-      return sendRequest("GET", "/api/inventory");
     },
   },
 
