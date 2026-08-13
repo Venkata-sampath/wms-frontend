@@ -148,6 +148,16 @@ export const Api = {
     },
   },
 
+  // --- REAL-TIME BALANCES AND TRACKING ---
+  inventory: {
+    async getSnapshot() {
+      return sendRequest("GET", "/api/inventory");
+    },
+    async adjust(payload) {
+      return sendRequest("POST", "/api/inventory/adjust", payload);
+    },
+  },
+
   // --- STOCK OWNER SERVICE INTERFACE ---
   stockOwners: {
     async list(clientId = null) {
