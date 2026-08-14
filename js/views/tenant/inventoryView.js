@@ -143,7 +143,9 @@ export async function render(container, user) {
                 <th scope="col">Description</th>
                 <th scope="col" id="col-header-client-code">Client Code</th>
                 <th scope="col">Location</th>
-                <th scope="col" class="text-end">Qty</th>
+                <th scope="col" class="text-end">Total</th>
+                <th scope="col" class="text-end">Reserved</th>
+                <th scope="col" class="text-end">Available</th>
                 <th scope="col" class="text-center">UOM</th>
                 <th scope="col" class="text-center">Category</th>
                 <th scope="col">Batch Number</th>
@@ -157,7 +159,7 @@ export async function render(container, user) {
             </thead>
             <tbody id="inventory-table-body">
               <tr>
-                <td colspan="14" class="text-center py-5">
+                <td colspan="16" class="text-center py-5">
                   <div class="spinner-border spinner-border-sm text-primary me-2"></div>
                   Querying real-time trace ledgers...
                 </td>
@@ -182,7 +184,7 @@ export async function render(container, user) {
     } catch (err) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="14" class="text-center text-danger py-4">
+          <td colspan="16" class="text-center text-danger py-4">
             <i class="bi bi-exclamation-triangle-fill me-2"></i> Failed to retrieve inventory: ${err.message}
           </td>
         </tr>
@@ -208,7 +210,6 @@ export async function render(container, user) {
   }
 
   function populateDropdownOptions(data) {
-    // Populate Client
     const clientSelect = document.getElementById("filter-client");
     if (clientSelect) {
       const clientMap = new Map();
@@ -237,7 +238,6 @@ export async function render(container, user) {
           .join("");
     }
 
-    // Helper for simple text selects
     const populateSelect = (selectId, defaultLabel, extractor) => {
       const select = document.getElementById(selectId);
       if (!select) return;
@@ -302,9 +302,8 @@ export async function render(container, user) {
 
     const tbody = document.getElementById("inventory-table-body");
     const showClientCode = clientFilter === "all";
-    const totalCols = showClientCode ? 14 : 13;
+    const totalCols = showClientCode ? 16 : 15;
 
-    // Update Header dynamic visibility for Client Code
     const thead = document.getElementById("inventory-table-head");
     if (thead) {
       thead.innerHTML = `
@@ -313,7 +312,9 @@ export async function render(container, user) {
           <th scope="col">Description</th>
           ${showClientCode ? '<th scope="col">Client Code</th>' : ""}
           <th scope="col">Location</th>
-          <th scope="col" class="text-end">Qty</th>
+          <th scope="col" class="text-end text-primary">Total</th>
+          <th scope="col" class="text-end text-danger">Reserved</th>
+          <th scope="col" class="text-end text-success">Available</th>
           <th scope="col" class="text-center">UOM</th>
           <th scope="col" class="text-center">Category</th>
           <th scope="col">Batch Number</th>
@@ -330,9 +331,7 @@ export async function render(container, user) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // 1. Filtering
     const filtered = fullInventoryData.filter((item) => {
-      // Calculate temporary days for filtering
       let daysRemaining = null;
       if (item.expiry_date) {
         const expDate = new Date(item.expiry_date);
@@ -354,7 +353,6 @@ export async function render(container, user) {
       }
       item._computedAging = numericAging;
 
-      // Search Query Validation across 12 business fields
       const searchFields = [
         item.item_code,
         item.item_description,
@@ -375,43 +373,35 @@ export async function render(container, user) {
           (field) => field && String(field).toLowerCase().includes(query),
         );
 
-      // Client
       const matchClient =
         clientFilter === "all" ||
         item.client_id === clientFilter ||
         item.client_code === clientFilter;
 
-      // Category
       const matchCategory =
         categoryFilter === "all" ||
         (item.category || "").trim() === categoryFilter;
 
-      // Location
       const matchLocation =
         locationFilter === "all" ||
         (item.location_id || "").trim() === locationFilter;
 
-      // Verified By
       const matchVerifiedBy =
         verifiedByFilter === "all" ||
         (item.verified_by || "").trim() === verifiedByFilter;
 
-      // Putaway By
       const matchPutawayBy =
         putawayByFilter === "all" ||
         (item.putaway_by || "").trim() === putawayByFilter;
 
-      // UOM
       const matchUom =
         uomFilter === "all" || (item.uom || "").trim() === uomFilter;
 
-      // Stock Status
       const qty = parseFloat(item.quantity || 0);
       let matchStatus = true;
       if (statusFilter === "in_stock") matchStatus = qty > 0;
       if (statusFilter === "out_of_stock") matchStatus = qty === 0;
 
-      // Shelf Life Range
       let matchShelfLife = true;
       if (shelfLifeFilter !== "all") {
         if (daysRemaining === null) {
@@ -429,7 +419,6 @@ export async function render(container, user) {
         }
       }
 
-      // Aging Range
       let matchAging = true;
       if (agingFilter !== "all") {
         if (numericAging === null) {
@@ -459,7 +448,6 @@ export async function render(container, user) {
       );
     });
 
-    // 2. Frontend Sorting
     filtered.sort((a, b) => {
       switch (sortOption) {
         case "item_asc":
@@ -510,12 +498,8 @@ export async function render(container, user) {
       return;
     }
 
-    // 3. Render Table Content
     tbody.innerHTML = filtered
       .map((item) => {
-        const qty = parseFloat(item.quantity || 0);
-
-        // Dynamic Shelf Life Badge Display
         let shelfLifeDisplay = '<span class="text-muted">-</span>';
         if (item.expiry_date && item._computedShelfLife !== null) {
           const daysRemaining = item._computedShelfLife;
@@ -523,26 +507,25 @@ export async function render(container, user) {
           let color = "";
 
           if (daysRemaining < 0) {
-            bg = "#8b0000"; // Dark Red
-            color = "#ffffff"; // White
+            bg = "#8b0000";
+            color = "#ffffff";
           } else if (daysRemaining <= 30) {
-            bg = "#f8d7da"; // Light Red
-            color = "#842029"; // Dark Red
+            bg = "#f8d7da";
+            color = "#842029";
           } else if (daysRemaining <= 90) {
-            bg = "#ffe8cc"; // Light Orange
-            color = "#d9480f"; // Dark Orange
+            bg = "#ffe8cc";
+            color = "#d9480f";
           } else if (daysRemaining <= 180) {
-            bg = "#fef3c7"; // Light Yellow
-            color = "#b45309"; // Dark Gold
+            bg = "#fef3c7";
+            color = "#b45309";
           } else {
-            bg = "#d1e7dd"; // Light Green
-            color = "#0f5132"; // Dark Green
+            bg = "#d1e7dd";
+            color = "#0f5132";
           }
 
           shelfLifeDisplay = `<span class="badge rounded-pill px-3 py-1 fw-bold" style="background-color: ${bg}; color: ${color}; border: none; display: inline-block;">${daysRemaining}</span>`;
         }
 
-        // Dynamic Aging Badge Display
         let agingDisplay = '<span class="text-muted">-</span>';
         if (item.created_at && item._computedAging !== null) {
           const numericAging = item._computedAging;
@@ -550,42 +533,40 @@ export async function render(container, user) {
           let color = "";
 
           if (numericAging <= 30) {
-            bg = "#e7f1ff"; // Very Light Blue
-            color = "#0a58ca"; // Dark Blue
+            bg = "#e7f1ff";
+            color = "#0a58ca";
           } else if (numericAging <= 90) {
-            bg = "#cff4fc"; // Light Cyan
-            color = "#087990"; // Dark Cyan
+            bg = "#cff4fc";
+            color = "#087990";
           } else if (numericAging <= 180) {
-            bg = "#e0dbff"; // Light Indigo
-            color = "#4f46e5"; // Indigo
+            bg = "#e0dbff";
+            color = "#4f46e5";
           } else {
-            bg = "#f3e5f5"; // Light Purple
-            color = "#4a148c"; // Dark Purple
+            bg = "#f3e5f5";
+            color = "#4a148c";
           }
 
           agingDisplay = `<span class="badge rounded-pill px-3 py-1 fw-bold" style="background-color: ${bg}; color: ${color}; border: none; display: inline-block;">${numericAging}</span>`;
         }
 
-        // Category Custom Styles Logic
         const categoryVal = item.category || "-";
         const categoryLower = categoryVal.toLowerCase().trim();
-        let catBg = "#e2e8f0"; // Neutral Light Gray
-        let catColor = "#475569"; // Neutral Dark Gray Text
+        let catBg = "#e2e8f0";
+        let catColor = "#475569";
 
         if (categoryLower === "ambient") {
-          catBg = "#f5ebe0"; // Light Beige / Sand
-          catColor = "#4e342e"; // Dark Brown
+          catBg = "#f5ebe0";
+          catColor = "#4e342e";
         } else if (categoryLower === "chiller") {
-          catBg = "#cfe2ff"; // Light Blue
-          catColor = "#084298"; // Dark Blue
+          catBg = "#cfe2ff";
+          catColor = "#084298";
         } else if (categoryLower === "frozen") {
-          catBg = "#e0f7fa"; // Light Cyan / Ice Blue
-          catColor = "#006064"; // Dark Teal
+          catBg = "#e0f7fa";
+          catColor = "#006064";
         }
 
         const categoryDisplay = `<span class="badge rounded-pill px-3 py-1 text-capitalize fw-bold" style="background-color: ${catBg}; color: ${catColor}; border: none; display: inline-block;">${categoryVal}</span>`;
 
-        // Conditional Client Code Cell
         const clientCodeCell = showClientCode
           ? `<td><span class="badge bg-secondary font-monospace px-2 py-1">${item.client_code || "-"}</span></td>`
           : "";
@@ -598,7 +579,9 @@ export async function render(container, user) {
           <td>
             <span class="badge bg-secondary font-monospace px-2 py-1">${item.location_id}</span>
           </td>
-          <td class="text-end fw-bold">${qty.toLocaleString()}</td>
+          <td class="text-end fw-bold text-primary">${parseFloat(item.quantity || 0).toLocaleString()}</td>
+          <td class="text-end text-danger">${parseFloat(item.reserved_quantity || 0).toLocaleString()}</td>
+          <td class="text-end fw-bold text-success">${parseFloat(item.available_quantity || 0).toLocaleString()}</td>
           <td class="text-center"><small class="text-uppercase text-muted fw-bold">${item.uom || ""}</small></td>
           <td class="text-center">${categoryDisplay}</td>
           <td><small class="font-monospace text-dark">${item.batch_number ? escapeHtml(item.batch_number) : ""}</small></td>
@@ -631,7 +614,6 @@ export async function render(container, user) {
 
   const root = document.getElementById("inventory-root");
 
-  // Event bindings
   root.querySelector("#refresh-inv-btn").onclick = () => loadInventory();
   root.querySelector("#btn-reset-filters").onclick = () => resetAllFilters();
 

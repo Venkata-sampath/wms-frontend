@@ -1,11 +1,6 @@
 // src/views/tenant/stockAdjustmentView.js
 import { Api } from "../../api.js";
 
-/**
- * Renders and wires up the Stock Adjustment cycle count view component.
- * @param {HTMLElement} container - Target injection frame
- * @param {Object} currentUser - Active authenticated user profile
- */
 export async function render(container, currentUser) {
   if (currentUser.role === "viewer" || currentUser.role === "super_admin") {
     container.innerHTML = `
@@ -53,13 +48,15 @@ export async function render(container, currentUser) {
                     <tr>
                       <th class="ps-4 py-3">Location</th>
                       <th class="py-3">Item Details</th>
-                      <th class="py-3 text-end">Available Qty</th>
+                      <th class="py-3 text-end text-primary">Total</th>
+                      <th class="py-3 text-end text-danger">Rsvd</th>
+                      <th class="py-3 text-end text-success">Avail</th>
                       <th class="pe-4 py-3 text-end">Action</th>
                     </tr>
                   </thead>
                   <tbody id="inventory-selection-table-body">
                     <tr>
-                      <td colspan="4" class="text-center py-5 text-muted">
+                      <td colspan="6" class="text-center py-5 text-muted">
                         <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
                         Querying inventory records...
                       </td>
@@ -87,7 +84,7 @@ export async function render(container, currentUser) {
 
                 <div class="row g-2 mb-3">
                   <div class="col-6">
-                    <label class="form-label small fw-semibold text-muted">Current System Qty</label>
+                    <label class="form-label small fw-semibold text-muted">Current System Total Qty</label>
                     <input type="text" id="adj-system-qty" class="form-control bg-light" readonly placeholder="0">
                   </div>
                   <div class="col-6">
@@ -97,8 +94,8 @@ export async function render(container, currentUser) {
                 </div>
 
                 <div class="mb-3">
-                  <label for="adj-physical-qty" class="form-label small fw-semibold text-muted">Physical Counted Quantity *</label>
-                  <input type="number" step="any" id="adj-physical-qty" class="form-control bg-light" placeholder="Enter audited quantity" required disabled>
+                  <label for="adj-physical-qty" class="form-label small fw-semibold text-muted">Physical Counted Quantity (Total in Bin) *</label>
+                  <input type="number" step="any" id="adj-physical-qty" class="form-control bg-light" placeholder="Enter audited total quantity" required disabled>
                 </div>
 
                 <div class="mb-3">
@@ -155,7 +152,7 @@ export async function render(container, currentUser) {
     } catch (err) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="4" class="text-center text-danger py-4 small fw-bold">
+          <td colspan="6" class="text-center text-danger py-4 small fw-bold">
             <i class="bi bi-exclamation-triangle-fill me-2"></i> Failed to load live inventory snapshot: ${err.message}
           </td>
         </tr>
@@ -170,7 +167,7 @@ export async function render(container, currentUser) {
     if (!items || items.length === 0) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="4" class="text-center py-5 text-muted small">
+          <td colspan="6" class="text-center py-5 text-muted small">
             <i class="bi bi-inbox display-6 d-block mb-2 text-secondary"></i>No inventory items found.
           </td>
         </tr>
@@ -190,9 +187,9 @@ export async function render(container, currentUser) {
           <div class="text-muted extra-small" style="font-size:0.75rem;">${escapeHtml(item.item_description)}</div>
           <div class="text-muted extra-small" style="font-size:0.7rem;">Batch: ${item.batch_number ? escapeHtml(item.batch_number) : "N/A"} | Client: ${escapeHtml(item.client_code || "N/A")}</div>
         </td>
-        <td class="text-end fw-bold font-monospace">
-          ${item.available_quantity} <span class="text-muted small">${escapeHtml(item.uom)}</span>
-        </td>
+        <td class="text-end fw-bold text-primary">${parseFloat(item.quantity || 0)}</td>
+        <td class="text-end text-danger">${parseFloat(item.reserved_quantity || 0)}</td>
+        <td class="text-end fw-bold text-success">${parseFloat(item.available_quantity || 0)}</td>
         <td class="pe-4 text-end">
           <button class="btn btn-outline-primary btn-sm px-3 select-item-btn" type="button" data-id="${item.id}">
             Select
@@ -210,9 +207,9 @@ export async function render(container, currentUser) {
 
   function selectInventoryItem(item) {
     hiddenInvId.value = item.id;
-    systemQtyIn.value = item.available_quantity;
+    systemQtyIn.value = item.quantity;
     uomIn.value = item.uom;
-    physicalQtyIn.value = item.available_quantity;
+    physicalQtyIn.value = item.quantity;
     deltaQtyIn.value = "0";
     deltaBadge.textContent = "Balanced";
     deltaBadge.className = "input-group-text bg-light text-muted";
@@ -222,7 +219,7 @@ export async function render(container, currentUser) {
       <div class="fw-bold text-dark mb-1"><i class="bi bi-box-seam text-primary me-1"></i> ${escapeHtml(item.item_code)}</div>
       <div>Location: <strong>${escapeHtml(item.location_id)}</strong></div>
       <div>Desc: ${escapeHtml(item.item_description)}</div>
-      <div>Batch: ${item.batch_number ? escapeHtml(item.batch_number) : "N/A"}</div>
+      <div>Reserved Qty: <strong><span class="text-danger">${parseFloat(item.reserved_quantity || 0)}</span></strong> (Total cannot drop below this)</div>
     `;
 
     physicalQtyIn.disabled = false;
@@ -259,9 +256,9 @@ export async function render(container, currentUser) {
     }
     const filtered = fullInventoryList.filter(
       (i) =>
-        i.item_code.toLowerCase().includes(term) ||
-        i.location_id.toLowerCase().includes(term) ||
-        i.item_description.toLowerCase().includes(term),
+        (i.item_code || "").toLowerCase().includes(term) ||
+        (i.location_id || "").toLowerCase().includes(term) ||
+        (i.item_description || "").toLowerCase().includes(term),
     );
     renderInventoryTable(filtered);
   });
