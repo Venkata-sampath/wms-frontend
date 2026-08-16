@@ -23,7 +23,22 @@ export async function render(container) {
             <div id="login-alert-anchor"></div>
 
             <form id="wms-login-form" novalidate>
-              
+
+              <div class="mb-3">
+                <label for="warehouse-id-input" class="form-label small fw-semibold text-muted">Warehouse ID</label>
+                <div class="input-group">
+                  <span class="input-group-text bg-light text-muted border-end-0"><i class="bi bi-building"></i></span>
+                  <input
+                    type="text"
+                    id="warehouse-id-input"
+                    class="form-control bg-light border-start-0"
+                    placeholder="e.g. nexus-logistics"
+                    required
+                    autocomplete="organization"
+                  >
+                </div>
+              </div>
+
               <div class="mb-3">
                 <label for="username-input" class="form-label small fw-semibold text-muted">Username</label>
                 <div class="input-group">
@@ -69,6 +84,7 @@ export async function render(container) {
   `;
 
   const loginForm = document.getElementById("wms-login-form");
+  const warehouseIdInput = document.getElementById("warehouse-id-input");
   const usernameInput = document.getElementById("username-input");
   const passwordInput = document.getElementById("password-input");
   const submitBtn = document.getElementById("submit-auth-btn");
@@ -78,10 +94,11 @@ export async function render(container) {
     e.preventDefault();
     alertAnchor.innerHTML = "";
 
+    const warehouseId = warehouseIdInput.value.trim().toLowerCase();
     const username = usernameInput.value.trim();
     const password = passwordInput.value;
 
-    if (!username || !password) {
+    if (!warehouseId || !username || !password) {
       renderErrorAlert(
         alertAnchor,
         "Please fill in all identity credentials to proceed.",
@@ -92,7 +109,11 @@ export async function render(container) {
     setButtonLoadingState(submitBtn, true);
 
     try {
-      const responseData = await Api.auth.login(username, password);
+      const responseData = await Api.auth.login(
+        warehouseId,
+        username,
+        password,
+      );
 
       if (responseData && responseData.token && responseData.user) {
         localStorage.setItem("wms_jwt_token", responseData.token);

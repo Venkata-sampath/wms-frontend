@@ -31,6 +31,23 @@ export async function render(container, user) {
             </h5>
           </div>
           <div class="card-body p-4">
+            <div class="mb-3">
+              <label for="warehouse-id-input" class="form-label small fw-semibold text-muted">Warehouse ID</label>
+              <div class="input-group">
+                <span class="input-group-text bg-light text-muted"><i class="bi bi-fingerprint"></i></span>
+                <input
+                  type="text"
+                  id="warehouse-id-input"
+                  class="form-control bg-light"
+                  placeholder="e.g., nexus-logistics"
+                  required
+                  autocomplete="off"
+                >
+              </div>
+              <div class="form-text text-muted extra-small" style="font-size:0.75rem;">
+                Unique tenant identifier. Staff of this warehouse will enter this alongside their username to log in — lowercase letters, numbers, and hyphens only.
+              </div>
+            </div>
             <div class="mb-2">
               <label for="company-name-input" class="form-label small fw-semibold text-muted">Legal Corporate Name</label>
               <div class="input-group">
@@ -166,6 +183,7 @@ export async function render(container, user) {
   const submitBtn = document.getElementById("submit-wizard-btn");
   const alertAnchor = document.getElementById("create-warehouse-alert-anchor");
 
+  const warehouseIdInput = document.getElementById("warehouse-id-input");
   const companyNameInput = document.getElementById("company-name-input");
   const gstinInput = document.getElementById("warehouse-gstin-input");
   const addressInput = document.getElementById("warehouse-address-input");
@@ -187,6 +205,7 @@ export async function render(container, user) {
     alertAnchor.innerHTML = ""; // Flush legacy alert blocks cleanly
 
     // Value structural normalization
+    const warehouseId = warehouseIdInput.value.trim().toLowerCase();
     const companyName = companyNameInput.value.trim();
     const gstin = gstinInput.value.trim().toUpperCase();
     const address = addressInput.value.trim();
@@ -195,12 +214,29 @@ export async function render(container, user) {
     const confirmPassword = confirmPasswordInput.value;
 
     // Phase 1: Local Empty Data Guard Interception
-    if (!companyName || !username || !password || !confirmPassword) {
+    if (
+      !warehouseId ||
+      !companyName ||
+      !username ||
+      !password ||
+      !confirmPassword
+    ) {
       renderAlert(
         alertAnchor,
         "danger",
         "All wizard layout fields require valid explicit records before processing.",
       );
+      return;
+    }
+
+    // Phase 1b: Warehouse ID Format Guard
+    if (!/^[a-z0-9-]+$/.test(warehouseId)) {
+      renderAlert(
+        alertAnchor,
+        "warning",
+        "Warehouse ID may only contain lowercase letters, numbers, and hyphens.",
+      );
+      warehouseIdInput.focus();
       return;
     }
 
@@ -232,6 +268,7 @@ export async function render(container, user) {
     try {
       // Stream payload execution directly to Cloudflare backend workers via api gateway
       await Api.superadmin.createWarehouse(
+        warehouseId,
         companyName,
         username,
         password,
@@ -277,6 +314,7 @@ export async function render(container, user) {
         <span>Provisioning Tenant Systems...</span>
       `;
       // Soften inputs visual visibility while loading
+      warehouseIdInput.disabled = true;
       companyNameInput.disabled = true;
       gstinInput.disabled = true;
       addressInput.disabled = true;
@@ -286,6 +324,7 @@ export async function render(container, user) {
     } else {
       submitBtn.disabled = false;
       submitBtn.innerHTML = `<i class="bi bi-cloud-arrow-up-fill me-2"></i> Deploy Tenant Cluster`;
+      warehouseIdInput.disabled = false;
       companyNameInput.disabled = false;
       gstinInput.disabled = false;
       addressInput.disabled = false;

@@ -80,8 +80,12 @@ async function sendRequest(method, endpoint, body = null) {
 export const Api = {
   // --- AUTH SERVICES ---
   auth: {
-    async login(username, password) {
-      return sendRequest("POST", "/api/auth/login", { username, password });
+    async login(warehouseId, username, password) {
+      return sendRequest("POST", "/api/auth/login", {
+        warehouse_id: warehouseId,
+        username,
+        password,
+      });
     },
   },
 
@@ -190,6 +194,7 @@ export const Api = {
       return sendRequest("GET", "/api/superadmin/warehouses");
     },
     async createWarehouse(
+      warehouseId,
       company_name,
       admin_username,
       admin_password,
@@ -197,6 +202,7 @@ export const Api = {
       address = null,
     ) {
       return sendRequest("POST", "/api/superadmin/warehouses", {
+        warehouse_id: warehouseId,
         company_name,
         admin_username,
         admin_password,
