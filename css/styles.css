@@ -35,7 +35,7 @@ html {
 .wms-sidebar {
   width: var(--sidebar-expanded-width);
   min-width: var(--sidebar-expanded-width);
-  background-color: #212529; /* Dark sleek slate theme */
+  background-color: #212529;
   color: #fff;
   transition:
     width var(--transition-speed) ease,
@@ -43,6 +43,8 @@ html {
   display: flex;
   flex-direction: column;
   z-index: 1030;
+  overflow-y: auto; /* NEW: allow internal scroll */
+  -webkit-overflow-scrolling: touch; /* NEW: smooth momentum scroll on iOS */
 }
 
 /* Sidebar Collapsed Modifiers */
