@@ -2485,6 +2485,8 @@ async function generateInvoicePdf(currentUser, bill, items) {
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 28;
   const boxWidth = pageWidth - margin * 2;
+  const ROW_PAD = 8; // shared bottom padding so sibling blocks align on one line
+  const FOOTER_RESERVE = 110; // space kept clear for declaration/bank/signatory footer
 
   let y = margin;
 
@@ -2510,7 +2512,7 @@ async function generateInvoicePdf(currentUser, bill, items) {
   const midX = margin + boxWidth / 2; // Exact center vertical divider
   const headerTopY = y;
 
-  // 1. TOP LEFT: Warehouse Info
+  // 1. TOP LEFT: Biller (Warehouse) Info — always rendered above Buyer
   doc.setFontSize(9);
   doc.setFont("helvetica", "bold");
   const compName =
@@ -2556,9 +2558,12 @@ async function generateInvoicePdf(currentUser, bill, items) {
   }
 
   // 2. TOP RIGHT: Invoice Metadata (5 Rows x 2 Columns Grid with Vertical Divider)
+  // Row height tightened from 22 -> 20pt so this block (which always renders
+  // all 5 rows) doesn't overshoot the Biller block's natural height as much.
   let rightY = headerTopY;
   const col1X = midX + 4;
   const col2X = midX + boxWidth / 4;
+  const metaRowH = 20;
 
   // Row 1
   doc.text(`Invoice No.`, col1X, rightY + 9);
@@ -2571,7 +2576,7 @@ async function generateInvoicePdf(currentUser, bill, items) {
   doc.text(`${bill.invoice_date || "—"}`, col2X + 4, rightY + 18);
   doc.setFont("helvetica", "normal");
 
-  rightY += 22;
+  rightY += metaRowH;
   doc.line(midX, rightY, pageWidth - margin, rightY);
 
   // Row 2
@@ -2583,7 +2588,7 @@ async function generateInvoicePdf(currentUser, bill, items) {
   doc.text(`${bill.due_date || "—"}`, col2X + 4, rightY + 18);
   doc.setFont("helvetica", "normal");
 
-  rightY += 22;
+  rightY += metaRowH;
   doc.line(midX, rightY, pageWidth - margin, rightY);
 
   // Row 3
@@ -2597,7 +2602,7 @@ async function generateInvoicePdf(currentUser, bill, items) {
   doc.text(`Other References`, col2X + 4, rightY + 9);
   doc.text(`${bill.other_ref || bill.notes || "—"}`, col2X + 4, rightY + 18);
 
-  rightY += 22;
+  rightY += metaRowH;
   doc.line(midX, rightY, pageWidth - margin, rightY);
 
   // Row 4
@@ -2607,7 +2612,7 @@ async function generateInvoicePdf(currentUser, bill, items) {
   doc.text(`Dated`, col2X + 4, rightY + 9);
   doc.text(`${bill.buyers_order_date || "—"}`, col2X + 4, rightY + 18);
 
-  rightY += 22;
+  rightY += metaRowH;
   doc.line(midX, rightY, pageWidth - margin, rightY);
 
   // Row 5
@@ -2617,20 +2622,22 @@ async function generateInvoicePdf(currentUser, bill, items) {
   doc.text(`Delivery Note Date`, col2X + 4, rightY + 9);
   doc.text(`${bill.delivery_note_date || "—"}`, col2X + 4, rightY + 18);
 
-  rightY += 22;
+  rightY += metaRowH;
 
-  // Calculate dynamic line position for Buyer top line
-  const topBlockBottomY = Math.max(leftY + 4, rightY);
+  // Shared bottom line for row 1: whichever column is naturally taller sets
+  // it, plus one consistent padding value — so neither side inherits a large
+  // arbitrary gap purely because the other side is fixed-height.
+  const topBlockBottomY = Math.max(leftY, rightY) + ROW_PAD;
 
-  // Draw Vertical Divider between Warehouse and Invoice Metadata
+  // Draw Vertical Divider between Biller and Invoice Metadata
   doc.line(midX, headerTopY, midX, topBlockBottomY);
   // Draw Vertical Separator inside Metadata Box (between Column 1 & Column 2)
   doc.line(col2X, headerTopY, col2X, topBlockBottomY);
 
-  // Horizontal divider separating Top Warehouse/Invoice block from Buyer/Dispatch block
+  // Horizontal divider separating Top Biller/Invoice block from Buyer/Dispatch block
   doc.line(margin, topBlockBottomY, pageWidth - margin, topBlockBottomY);
 
-  // 3. BOTTOM LEFT: Buyer Details
+  // 3. BOTTOM LEFT: Buyer Details — always rendered below Biller
   const buyerTopY = topBlockBottomY;
   doc.setFontSize(7.5);
   doc.setFont("helvetica", "normal");
@@ -2663,7 +2670,7 @@ async function generateInvoicePdf(currentUser, bill, items) {
   );
   buyerY += 10;
 
-  // 4. BOTTOM RIGHT: Dispatch & Terms of Delivery (Enlarged)
+  // 4. BOTTOM RIGHT: Dispatch & Terms of Delivery
   let dispatchY = buyerTopY;
   doc.text(`Dispatched through`, col1X, dispatchY + 10);
   doc.text(`${bill.dispatch_through || "—"}`, col1X, dispatchY + 19);
@@ -2683,12 +2690,15 @@ async function generateInvoicePdf(currentUser, bill, items) {
     doc.text(deliveryLines, col1X, dispatchY + 20);
     dispatchY += deliveryLines.length * 9 + 15;
   } else {
+    // Was a flat +35 (taller than even a populated single line would be).
+    // Now matches the height a populated one-line value would take.
     doc.text("—", col1X, dispatchY + 20);
-    dispatchY += 35; // Larger height for terms of delivery
+    dispatchY += 9 + 15;
   }
 
-  // Determine dynamic bottom line for header section
-  const headerSectionBottomY = Math.max(buyerY + 4, dispatchY);
+  // Shared bottom line for row 2, same rule as row 1: taller natural content
+  // wins, plus one consistent padding value.
+  const headerSectionBottomY = Math.max(buyerY, dispatchY) + ROW_PAD;
 
   // Draw Vertical Divider between Buyer and Dispatch blocks
   doc.line(midX, buyerTopY, midX, headerSectionBottomY);
@@ -2749,8 +2759,13 @@ async function generateInvoicePdf(currentUser, bill, items) {
 
   const hsnMap = {};
 
+  // Single shared page-break threshold, tied to FOOTER_RESERVE, so every
+  // mid-table break point and the footer's own safety check agree with each
+  // other instead of using three unrelated hardcoded numbers.
+  const ITEM_BREAK_Y = pageHeight - margin - FOOTER_RESERVE - 40;
+
   items.forEach((item) => {
-    if (y > pageHeight - margin - 150) {
+    if (y > ITEM_BREAK_Y) {
       cols.forEach((col, idx) => {
         if (idx > 0) doc.line(col.x, tableContentTopY - 24, col.x, y);
       });
@@ -2805,7 +2820,7 @@ async function generateInvoicePdf(currentUser, bill, items) {
       doc.setFontSize(7);
 
       item.sub_items.forEach((sub) => {
-        if (y > pageHeight - margin - 150) {
+        if (y > ITEM_BREAK_Y) {
           cols.forEach((col, idx) => {
             if (idx > 0) doc.line(col.x, tableContentTopY - 24, col.x, y);
           });
@@ -2839,7 +2854,7 @@ async function generateInvoicePdf(currentUser, bill, items) {
     y += 4;
   });
 
-  if (y > pageHeight - margin - 180) {
+  if (y > ITEM_BREAK_Y) {
     cols.forEach((col, idx) => {
       if (idx > 0) doc.line(col.x, tableContentTopY - 24, col.x, y);
     });
@@ -2914,11 +2929,10 @@ async function generateInvoicePdf(currentUser, bill, items) {
     y += 12;
   }
 
-  let tableBottomY = Math.max(y + 10, margin + 450);
-
-  if (tableBottomY > pageHeight - margin - 220) {
-    tableBottomY = y + 10;
-  }
+  // Table bottom is now content-driven (no more forced "margin + 450" floor
+  // that left a large blank gap under the tax rows on short invoices, and no
+  // more inconsistent fallback that only kicked in near the page edge).
+  let tableBottomY = y + 10;
 
   cols.forEach((col, idx) => {
     if (idx > 0) {
@@ -2998,6 +3012,7 @@ async function generateInvoicePdf(currentUser, bill, items) {
 
   let hsnTaxSum = 0;
   doc.setFont("helvetica", "normal");
+  const hsnRowsTopY = y;
 
   Object.keys(hsnMap).forEach((code) => {
     const row = hsnMap[code];
@@ -3074,6 +3089,12 @@ async function generateInvoicePdf(currentUser, bill, items) {
     y += 14;
   });
 
+  // Side borders for the HSN summary table body. Previously only the header
+  // row had vertical dividers — the data rows below it weren't enclosed.
+  hsnCols.forEach((col, idx) => {
+    if (idx > 0) doc.line(col.x, hsnRowsTopY, col.x, y);
+  });
+
   doc.line(margin, y, pageWidth - margin, y);
 
   // HSN Table Total Summary
@@ -3129,7 +3150,10 @@ async function generateInvoicePdf(currentUser, bill, items) {
   y += 16;
   doc.line(margin, y, pageWidth - margin, y);
 
-  if (y > pageHeight - margin - 80) {
+  // Footer safety check now shares FOOTER_RESERVE with the mid-table break
+  // logic above, instead of an unrelated, too-shallow 80pt guess that could
+  // clip the bank-details/signatory block off the bottom of the page.
+  if (y > pageHeight - margin - FOOTER_RESERVE) {
     doc.addPage();
     addHeaderAndOuterBox();
   }
@@ -3174,7 +3198,8 @@ async function generateInvoicePdf(currentUser, bill, items) {
     footerTopY + 74,
   );
 
-  // Authorised Signatory Block
+  // Authorised Signatory Block — line runs to the fixed outer-box bottom
+  // (this is a fixed A4 template, so that bound is intentional, not a bug)
   const sigX = pageWidth - margin - 200;
   doc.line(sigX, footerTopY, sigX, pageHeight - margin - 15);
 
