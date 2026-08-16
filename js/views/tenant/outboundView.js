@@ -89,13 +89,14 @@ export async function render(container, user) {
                 <thead class="table-light" style="position: sticky; top: 0; z-index: 1;">
                   <tr>
                     <th class="ps-3">Shipment</th>
-                    <th>Status</th>
+                    <th>Uploaded By</th>
                     <th>Created At</th>
+                    <th>Status</th>
                     <th class="pe-3 text-end">Actions</th>
                   </tr>
                 </thead>
                 <tbody id="list-body-outbound">
-                  <tr><td colspan="4" class="text-center text-muted py-4">Loading queue...</td></tr>
+                  <tr><td colspan="5" class="text-center text-muted py-4">Loading queue...</td></tr>
                 </tbody>
               </table>
             </div>
@@ -307,7 +308,7 @@ async function refreshQueue(forceRefresh = false) {
     lastQueueHash = currentHash;
 
     if (shipments.length === 0) {
-      listBody.innerHTML = `<tr><td colspan="4" class="text-center text-muted py-4">Nothing pending. Upload a document above to get started.</td></tr>`;
+      listBody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-4">Nothing pending. Upload a document above to get started.</td></tr>`;
       return;
     }
 
@@ -317,21 +318,23 @@ async function refreshQueue(forceRefresh = false) {
       btn.onclick = () => openStagedShipment(btn.dataset.id);
     });
   } catch (err) {
-    listBody.innerHTML = `<tr><td colspan="4" class="text-center text-danger py-4">${escapeHtml(err.message)}</td></tr>`;
+    listBody.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-4">${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
 function renderQueueRow(s) {
   const shortId = s.id ? s.id.substring(0, 8) + "..." : "N/A";
   const isActive = s.id === activeShipmentId;
+  const uploadedBy = s.uploaded_by_username || "—";
   const createdAt = formatTimestamp(s.created_at);
 
   if (s.status === "pending_verification" || s.status === "pending") {
     return `
       <tr class="${isActive ? "table-primary fw-medium" : ""}">
         <td class="ps-3"><code class="small text-primary">${shortId}</code></td>
-        <td><span class="badge bg-success-subtle text-success px-2 py-1 border border-success-subtle rounded-pill">Ready to Verify</span></td>
+        <td>${uploadedBy}</td>
         <td class="text-muted small">${createdAt}</td>
+        <td><span class="badge bg-success-subtle text-success px-2 py-1 border border-success-subtle rounded-pill">Ready to Verify</span></td>
         <td class="pe-3 text-end">
           <button class="btn btn-sm btn-primary verify-btn shadow-sm" data-id="${s.id}">
             <i class="bi bi-clipboard-check"></i> Verify
@@ -343,13 +346,14 @@ function renderQueueRow(s) {
   return `
     <tr>
       <td class="ps-3"><code class="small text-muted">${shortId}</code></td>
+      <td>${uploadedBy}</td>
+      <td class="text-muted small">${createdAt}</td>
       <td>
         <span class="badge bg-warning text-warning-dominant px-2 py-1 border border-warning-subtle rounded-pill d-inline-flex align-items-center gap-1">
           <span class="spinner-border spinner-border-sm" style="width:0.65rem;height:0.65rem;border-width:1.5px;"></span>
           ${escapeHtml(s.status || "Processing")}
         </span>
       </td>
-      <td class="text-muted small">${createdAt}</td>
       <td class="pe-3 text-end text-muted small">OCR Extraction...</td>
     </tr>`;
 }
