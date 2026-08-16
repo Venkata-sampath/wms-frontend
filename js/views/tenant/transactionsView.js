@@ -752,16 +752,37 @@ export async function render(container, user) {
 
   function renderStockAdjustmentDetail(detail) {
     const txn = detail.transaction || {};
-    const adj = detail.adjustment_detail || {};
+    const header = detail.adjustment_header || detail.adjustment_detail || {};
+    const items =
+      detail.adjustment_items ||
+      (detail.adjustment_detail ? [detail.adjustment_detail] : []);
 
     const createdStr = formatTimestamp(txn.created_at);
-    const deltaClass =
-      adj.delta_quantity > 0
-        ? "text-success"
-        : adj.delta_quantity < 0
-          ? "text-danger"
-          : "";
-    const deltaSign = adj.delta_quantity > 0 ? "+" : "";
+
+    const rowsHtml = items
+      .map((item) => {
+        const deltaClass =
+          item.delta_quantity > 0
+            ? "text-success fw-bold"
+            : item.delta_quantity < 0
+              ? "text-danger fw-bold"
+              : "text-muted";
+        const deltaSign = item.delta_quantity > 0 ? "+" : "";
+
+        return `
+        <tr>
+          <td><code class="fw-bold text-primary font-monospace">${txt(item.item_code)}</code></td>
+          <td><div class="text-truncate text-secondary" style="max-width:200px;" title="${escapeHtml(item.item_description)}">${txt(item.item_description)}</div></td>
+          <td><span class="badge bg-light text-dark border font-monospace">${txt(item.location_id)}</span></td>
+          <td><span class="badge bg-light text-secondary border font-monospace">${txt(item.batch_number || "N/A")}</span></td>
+          <td><small class="text-uppercase font-monospace text-muted fw-bold">${txt(item.uom)}</small></td>
+          <td class="text-end font-monospace">${txt(item.system_quantity)}</td>
+          <td class="text-end font-monospace fw-bold text-dark">${txt(item.physical_quantity)}</td>
+          <td class="text-end font-monospace ${deltaClass}">${deltaSign}${txt(item.delta_quantity)}</td>
+        </tr>
+      `;
+      })
+      .join("");
 
     return `
     <div class="card border-0 shadow-sm mb-3 rounded-3 overflow-hidden">
@@ -774,43 +795,35 @@ export async function render(container, user) {
           ${infoField("Transaction Type", typeBadge(txn.transaction_type))}
           ${infoField("Status", statusBadge(txn.status))}
           ${infoField("Date", createdStr)}
+          ${infoField("Client", `<span class="fw-semibold text-dark">${txt(header.client_name)} (${txt(header.client_code)})</span>`)}
+          ${infoField("Performed By", txt(header.performed_by))}
+          ${infoField("Items Count", `<span class="badge bg-primary rounded-pill">${items.length}</span>`)}
         </div>
       </div>
     </div>
 
     <div class="card border-0 shadow-sm mb-3 rounded-3 overflow-hidden">
       <div class="card-header bg-white fw-bold text-uppercase small text-muted py-2.5">
-        Stock Adjustment Summary
+        Adjusted Line Items (${items.length})
       </div>
-      <div class="card-body p-3">
-        <div class="row g-2 mb-3">
-          ${infoField("Client", `<span class="fw-semibold text-dark">${txt(adj.client_name)} (${txt(adj.client_code)})</span>`)}
-          ${infoField("Performed By", txt(adj.performed_by))}
-          ${infoField("Location", `<span class="badge bg-primary font-monospace">${txt(adj.location_id)}</span>`)}
-        </div>
-        
-        <div class="table-responsive">
-          <table class="table table-bordered align-middle small mb-0">
-            <thead class="table-light">
-              <tr>
-                <th>Item Code</th>
-                <th>Description</th>
-                <th class="text-end">System Qty</th>
-                <th class="text-end">Counted Qty</th>
-                <th class="text-end">Variance</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td class="fw-bold">${txt(adj.item_code)}</td>
-                <td>${txt(adj.item_description)}</td>
-                <td class="text-end">${txt(adj.system_quantity)} ${txt(adj.uom)}</td>
-                <td class="text-end fw-bold">${txt(adj.physical_quantity)} ${txt(adj.uom)}</td>
-                <td class="text-end fw-bold ${deltaClass}">${deltaSign}${txt(adj.delta_quantity)} ${txt(adj.uom)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+      <div class="table-responsive">
+        <table class="table table-sm table-bordered align-middle small mb-0" style="font-size: 0.82rem;">
+          <thead class="table-light small text-uppercase" style="font-size: 0.68rem;">
+            <tr>
+              <th>Item Code</th>
+              <th>Description</th>
+              <th>Location</th>
+              <th>Batch Number</th>
+              <th>UOM</th>
+              <th class="text-end">System Qty</th>
+              <th class="text-end">Counted Qty</th>
+              <th class="text-end">Variance (Delta)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml || '<tr><td colspan="8" class="text-center text-muted py-3">No adjusted line items found.</td></tr>'}
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -819,7 +832,7 @@ export async function render(container, user) {
         Audit Remarks / Reason
       </div>
       <div class="card-body p-3">
-        <div class="small text-dark">${escapeHtml(adj.remarks || "No remarks provided.")}</div>
+        <div class="small text-dark">${escapeHtml(header.remarks || txn.remarks || "No remarks provided.")}</div>
       </div>
     </div>
     `;
