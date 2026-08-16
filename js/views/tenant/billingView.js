@@ -2487,21 +2487,24 @@ async function generateInvoicePdf(currentUser, bill, items) {
   const boxWidth = pageWidth - margin * 2;
   const ROW_PAD = 8; // shared bottom padding so sibling blocks align on one line
   const FOOTER_RESERVE = 110; // space kept clear for declaration/bank/signatory footer
+  const BOX_BOTTOM = pageHeight - margin - 15; // fixed outer-box bottom, same on every page
 
   let y = margin;
 
+  // Title now sits ABOVE the outer box (matches Tally: "TAX INVOICE" printed
+  // above the rule, not inside it with its own divider line).
   function addHeaderAndOuterBox() {
     doc.setLineWidth(0.75);
     doc.setDrawColor(0);
-    // Draw outer box leaving room at bottom for "Computer Generated Invoice" text
-    doc.rect(margin, margin, boxWidth, pageHeight - margin * 2 - 15);
 
-    y = margin;
     doc.setFontSize(10);
     doc.setFont("helvetica", "bold");
-    doc.text("TAX INVOICE", pageWidth / 2, y + 12, { align: "center" });
-    y += 18;
-    doc.line(margin, y, pageWidth - margin, y);
+    doc.text("TAX INVOICE", pageWidth / 2, margin + 10, { align: "center" });
+
+    const boxTop = margin + 18;
+    doc.rect(margin, boxTop, boxWidth, BOX_BOTTOM - boxTop);
+
+    y = boxTop;
   }
 
   addHeaderAndOuterBox();
@@ -2512,7 +2515,12 @@ async function generateInvoicePdf(currentUser, bill, items) {
   const midX = margin + boxWidth / 2; // Exact center vertical divider
   const headerTopY = y;
 
-  // 1. TOP LEFT: Biller (Warehouse) Info — always rendered above Buyer
+  // ---------------------------------------------------------------------
+  // LEFT COLUMN: Seller (Biller) info flowing straight into Buyer info,
+  // as ONE continuous block with no horizontal divider between them
+  // (matches Tally: Seller and "Buyer (Bill to)" share the same column,
+  // separated only by normal line spacing).
+  // ---------------------------------------------------------------------
   doc.setFontSize(9);
   doc.setFont("helvetica", "bold");
   const compName =
@@ -2548,164 +2556,148 @@ async function generateInvoicePdf(currentUser, bill, items) {
     leftY,
   );
   leftY += 10;
-  if (bill.wh_contact || bill.wh_email) {
-    doc.text(
-      `Contact: ${bill.wh_contact || "—"} | ${bill.wh_email || "—"}`,
-      margin + 6,
-      leftY,
-    );
+  if (bill.wh_contact) {
+    doc.text(`Contact: ${bill.wh_contact}`, margin + 6, leftY);
+    leftY += 10;
+  }
+  if (bill.wh_email) {
+    doc.text(`E-Mail: ${bill.wh_email}`, margin + 6, leftY);
     leftY += 10;
   }
 
-  // 2. TOP RIGHT: Invoice Metadata (5 Rows x 2 Columns Grid with Vertical Divider)
-  // Row height tightened from 22 -> 20pt so this block (which always renders
-  // all 5 rows) doesn't overshoot the Biller block's natural height as much.
+  // Buyer block continues directly below Seller block, same column.
+  leftY += 3;
+  doc.setFont("helvetica", "normal");
+  doc.text("Buyer (Bill to)", margin + 6, leftY);
+  leftY += 10;
+  doc.setFont("helvetica", "bold");
+  doc.text(`${bill.buyer_name || bill.client_name || ""}`, margin + 6, leftY);
+  leftY += 10;
+  doc.setFont("helvetica", "normal");
+
+  const buyerAddr = bill.buyer_address || bill.client_address;
+  if (buyerAddr) {
+    const clientAddrLines = doc.splitTextToSize(buyerAddr, boxWidth / 2 - 15);
+    doc.text(clientAddrLines, margin + 6, leftY);
+    leftY += clientAddrLines.length * 9;
+  }
+  doc.text(
+    `GSTIN/UIN: ${bill.buyer_gstin || bill.client_gstin || "—"}`,
+    margin + 6,
+    leftY,
+  );
+  leftY += 10;
+  doc.text(
+    `State Name: ${bill.buyer_state_name || "—"}, Code: ${bill.buyer_state_code || "—"}`,
+    margin + 6,
+    leftY,
+  );
+  leftY += 10;
+  doc.text(
+    `Place of Supply: ${bill.place_of_supply || bill.buyer_state_name || "—"}`,
+    margin + 6,
+    leftY,
+  );
+  leftY += 10;
+
+  const leftBottomY = leftY;
+
+  // ---------------------------------------------------------------------
+  // RIGHT COLUMN: one continuous 7-row invoice-metadata column, independent
+  // of where the left column's Seller/Buyer split falls (matches Tally).
+  // Rows 1-6 are two-column (label/value pairs); row 7 (Terms of Delivery)
+  // spans the full right-column width.
+  // ---------------------------------------------------------------------
   let rightY = headerTopY;
   const col1X = midX + 4;
   const col2X = midX + boxWidth / 4;
   const metaRowH = 20;
 
-  // Row 1
-  doc.text(`Invoice No.`, col1X, rightY + 9);
-  doc.setFont("helvetica", "bold");
-  doc.text(`${bill.invoice_number}`, col1X, rightY + 18);
-  doc.setFont("helvetica", "normal");
+  const refStr = `${bill.reference_number || "—"}${bill.reference_date ? " dt. " + bill.reference_date : ""}`;
+  const otherRefStr = bill.other_ref || bill.notes || "—";
 
-  doc.text(`Dated`, col2X + 4, rightY + 9);
-  doc.setFont("helvetica", "bold");
-  doc.text(`${bill.invoice_date || "—"}`, col2X + 4, rightY + 18);
-  doc.setFont("helvetica", "normal");
+  const rightRows = [
+    ["Invoice No.", bill.invoice_number, "Dated", bill.invoice_date],
+    [
+      "Delivery Note",
+      bill.delivery_note,
+      "Mode/Terms of Payment",
+      bill.due_date,
+    ],
+    ["Reference No. & Date.", refStr, "Other References", otherRefStr],
+    [
+      "Buyer's Order No.",
+      bill.buyers_order_no,
+      "Dated",
+      bill.buyers_order_date,
+    ],
+    [
+      "Dispatch Doc No.",
+      bill.dispatch_doc_no,
+      "Delivery Note Date",
+      bill.delivery_note_date,
+    ],
+    [
+      "Dispatched through",
+      bill.dispatch_through,
+      "Destination",
+      bill.destination,
+    ],
+  ];
 
-  rightY += metaRowH;
-  doc.line(midX, rightY, pageWidth - margin, rightY);
+  rightRows.forEach((row) => {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.text(row[0], col1X, rightY + 9);
+    doc.setFont("helvetica", "bold");
+    doc.text(`${row[1] || "—"}`, col1X, rightY + 18);
 
-  // Row 2
-  doc.text(`Delivery Note`, col1X, rightY + 9);
-  doc.text(`${bill.delivery_note || "—"}`, col1X, rightY + 18);
+    doc.setFont("helvetica", "normal");
+    doc.text(row[2], col2X + 4, rightY + 9);
+    doc.setFont("helvetica", "bold");
+    doc.text(`${row[3] || "—"}`, col2X + 4, rightY + 18);
 
-  doc.text(`Mode/Terms of Payment`, col2X + 4, rightY + 9);
-  doc.setFont("helvetica", "bold");
-  doc.text(`${bill.due_date || "—"}`, col2X + 4, rightY + 18);
-  doc.setFont("helvetica", "normal");
+    doc.setFont("helvetica", "normal");
+    rightY += metaRowH;
+    doc.line(midX, rightY, pageWidth - margin, rightY);
+  });
 
-  rightY += metaRowH;
-  doc.line(midX, rightY, pageWidth - margin, rightY);
+  // col2X separator only runs through the paired rows above, not through
+  // the full-width Terms of Delivery row below.
+  const col2DividerBottomY = rightY;
 
-  // Row 3
-  doc.text(`Reference No. & Date`, col1X, rightY + 9);
-  doc.text(
-    `${bill.reference_number || "—"}${bill.reference_date ? " dt. " + bill.reference_date : ""}`,
-    col1X,
-    rightY + 18,
-  );
-
-  doc.text(`Other References`, col2X + 4, rightY + 9);
-  doc.text(`${bill.other_ref || bill.notes || "—"}`, col2X + 4, rightY + 18);
-
-  rightY += metaRowH;
-  doc.line(midX, rightY, pageWidth - margin, rightY);
-
-  // Row 4
-  doc.text(`Buyer's Order No.`, col1X, rightY + 9);
-  doc.text(`${bill.buyers_order_no || "—"}`, col1X, rightY + 18);
-
-  doc.text(`Dated`, col2X + 4, rightY + 9);
-  doc.text(`${bill.buyers_order_date || "—"}`, col2X + 4, rightY + 18);
-
-  rightY += metaRowH;
-  doc.line(midX, rightY, pageWidth - margin, rightY);
-
-  // Row 5
-  doc.text(`Dispatch Doc No.`, col1X, rightY + 9);
-  doc.text(`${bill.dispatch_doc_no || "—"}`, col1X, rightY + 18);
-
-  doc.text(`Delivery Note Date`, col2X + 4, rightY + 9);
-  doc.text(`${bill.delivery_note_date || "—"}`, col2X + 4, rightY + 18);
-
-  rightY += metaRowH;
-
-  // Shared bottom line for row 1: whichever column is naturally taller sets
-  // it, plus one consistent padding value — so neither side inherits a large
-  // arbitrary gap purely because the other side is fixed-height.
-  const topBlockBottomY = Math.max(leftY, rightY) + ROW_PAD;
-
-  // Draw Vertical Divider between Biller and Invoice Metadata
-  doc.line(midX, headerTopY, midX, topBlockBottomY);
-  // Draw Vertical Separator inside Metadata Box (between Column 1 & Column 2)
-  doc.line(col2X, headerTopY, col2X, topBlockBottomY);
-
-  // Horizontal divider separating Top Biller/Invoice block from Buyer/Dispatch block
-  doc.line(margin, topBlockBottomY, pageWidth - margin, topBlockBottomY);
-
-  // 3. BOTTOM LEFT: Buyer Details — always rendered below Biller
-  const buyerTopY = topBlockBottomY;
-  doc.setFontSize(7.5);
-  doc.setFont("helvetica", "normal");
-  doc.text("Buyer (Bill to)", margin + 6, buyerTopY + 10);
-  doc.setFont("helvetica", "bold");
-  doc.text(
-    `${bill.buyer_name || bill.client_name || ""}`,
-    margin + 6,
-    buyerTopY + 20,
-  );
-  doc.setFont("helvetica", "normal");
-
-  let buyerY = buyerTopY + 29;
-  const buyerAddr = bill.buyer_address || bill.client_address;
-  if (buyerAddr) {
-    const clientAddrLines = doc.splitTextToSize(buyerAddr, boxWidth / 2 - 15);
-    doc.text(clientAddrLines, margin + 6, buyerY);
-    buyerY += clientAddrLines.length * 9;
-  }
-  doc.text(
-    `GSTIN/UIN: ${bill.buyer_gstin || bill.client_gstin || "—"}`,
-    margin + 6,
-    buyerY,
-  );
-  buyerY += 10;
-  doc.text(
-    `State Name: ${bill.buyer_state_name || "—"}, Code: ${bill.buyer_state_code || "—"}`,
-    margin + 6,
-    buyerY,
-  );
-  buyerY += 10;
-
-  // 4. BOTTOM RIGHT: Dispatch & Terms of Delivery
-  let dispatchY = buyerTopY;
-  doc.text(`Dispatched through`, col1X, dispatchY + 10);
-  doc.text(`${bill.dispatch_through || "—"}`, col1X, dispatchY + 19);
-
-  doc.text(`Destination`, col2X + 4, dispatchY + 10);
-  doc.text(`${bill.destination || "—"}`, col2X + 4, dispatchY + 19);
-
-  dispatchY += 25;
-  doc.line(midX, dispatchY, pageWidth - margin, dispatchY);
-
-  doc.text(`Terms of Delivery`, col1X, dispatchY + 10);
+  // Row 7: Terms of Delivery (full width, dynamic height for wrapped text)
+  const termsTopY = rightY;
+  doc.text("Terms of Delivery", col1X, termsTopY + 10);
   if (bill.terms_of_delivery) {
     const deliveryLines = doc.splitTextToSize(
       bill.terms_of_delivery,
-      boxWidth / 2 - 15,
+      pageWidth - margin - col1X - 6,
     );
-    doc.text(deliveryLines, col1X, dispatchY + 20);
-    dispatchY += deliveryLines.length * 9 + 15;
+    doc.setFont("helvetica", "bold");
+    doc.text(deliveryLines, col1X, termsTopY + 20);
+    doc.setFont("helvetica", "normal");
+    rightY = termsTopY + deliveryLines.length * 9 + 15;
   } else {
-    // Was a flat +35 (taller than even a populated single line would be).
-    // Now matches the height a populated one-line value would take.
-    doc.text("—", col1X, dispatchY + 20);
-    dispatchY += 9 + 15;
+    doc.setFont("helvetica", "bold");
+    doc.text("—", col1X, termsTopY + 20);
+    doc.setFont("helvetica", "normal");
+    rightY = termsTopY + 9 + 15;
   }
 
-  // Shared bottom line for row 2, same rule as row 1: taller natural content
-  // wins, plus one consistent padding value.
-  const headerSectionBottomY = Math.max(buyerY, dispatchY) + ROW_PAD;
+  const rightBottomY = rightY;
 
-  // Draw Vertical Divider between Buyer and Dispatch blocks
-  doc.line(midX, buyerTopY, midX, headerSectionBottomY);
-  // Draw vertical separator inside top half of dispatch block
-  doc.line(col2X, buyerTopY, col2X, buyerTopY + 25);
+  // Shared bottom line for the whole header section: whichever column is
+  // naturally taller sets it, plus one consistent padding value.
+  const headerSectionBottomY = Math.max(leftBottomY, rightBottomY) + ROW_PAD;
 
-  // Horizontal line separating Header from Main Goods Table
+  // Vertical divider between left (Seller+Buyer) and right (metadata) column
+  doc.line(midX, headerTopY, midX, headerSectionBottomY);
+  // Vertical separator inside the metadata column (label | value), only
+  // through the six paired rows.
+  doc.line(col2X, headerTopY, col2X, col2DividerBottomY);
+
+  // Horizontal divider separating the full header block from the goods table
   y = headerSectionBottomY;
   doc.line(margin, y, pageWidth - margin, y);
 
@@ -2736,7 +2728,14 @@ async function generateInvoicePdf(currentUser, bill, items) {
       if (col.align === "left") textX = col.x + 4;
       if (col.align === "right") textX = col.x + col.width - 4;
 
-      if (col.name.includes("Description")) {
+      if (col.name === "SI No") {
+        doc.text("SI", col.x + col.width / 2, tableHeaderTopY + 9, {
+          align: "center",
+        });
+        doc.text("No.", col.x + col.width / 2, tableHeaderTopY + 18, {
+          align: "center",
+        });
+      } else if (col.name.includes("Description")) {
         doc.text("Description of", col.x + 4, tableHeaderTopY + 9);
         doc.text("Goods and Services", col.x + 4, tableHeaderTopY + 18);
       } else {
@@ -2895,8 +2894,15 @@ async function generateInvoicePdf(currentUser, bill, items) {
     Number(bill.grand_total) ||
     subtotal + totalCgst + totalSgst + totalIgst + roundoff;
 
+  // Item subtotal row — plain amount, no label, printed right after the
+  // items and before the tax rows (matches Tally).
+  y += 6;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(7.5);
+  doc.text(formatMoney(subtotal), cols[7].x + cols[7].width - 4, y + 10, {
+    align: "right",
+  });
+  y += 12;
 
   if (isInterState) {
     doc.text("IGST", cols[1].x + 4, y + 10);
@@ -2929,9 +2935,8 @@ async function generateInvoicePdf(currentUser, bill, items) {
     y += 12;
   }
 
-  // Table bottom is now content-driven (no more forced "margin + 450" floor
-  // that left a large blank gap under the tax rows on short invoices, and no
-  // more inconsistent fallback that only kicked in near the page edge).
+  // Table bottom is content-driven (no forced floor, no inconsistent
+  // fallback near the page edge).
   let tableBottomY = y + 10;
 
   cols.forEach((col, idx) => {
@@ -2960,54 +2965,127 @@ async function generateInvoicePdf(currentUser, bill, items) {
   doc.setFontSize(7.5);
   doc.setFont("helvetica", "normal");
   doc.text("Amount Chargeable (in words)", margin + 6, y + 10);
+  doc.text("E. & O.E", pageWidth - margin - 6, y + 10, { align: "right" });
   doc.setFont("helvetica", "bold");
   doc.text(numberToWordsIndian(grandTotal), margin + 6, y + 20);
   y += 28;
   doc.line(margin, y, pageWidth - margin, y);
 
-  // HSN/SAC Tax Summary Table
+  // -----------------------------------------------------------------------
+  // HSN/SAC Tax Summary Table — 2-level grouped header:
+  // HSN/SAC | Taxable Value | CGST (Rate|Amount) | SGST/UTGST (Rate|Amount) | Total Tax Amount
+  // (or) HSN/SAC | Taxable Value | IGST (Rate|Amount) | Total Tax Amount
+  // -----------------------------------------------------------------------
   const hsnTableTopY = y;
+  const HEADER_ROW_H = 14;
+  const HSN_HEADER_H = 28;
+
   let hsnCols = [];
+  let hsnGroups = [];
 
   if (isInterState) {
     hsnCols = [
-      { name: "HSN/SAC", x: margin, width: 100, align: "center" },
-      { name: "Taxable Value", x: margin + 100, width: 130, align: "right" },
-      { name: "IGST Rate", x: margin + 230, width: 80, align: "center" },
-      { name: "IGST Amount", x: margin + 310, width: 110, align: "right" },
+      { name: "HSN/SAC", x: margin, width: 90, align: "center", rowspan: true },
+      {
+        name: "Taxable Value",
+        x: margin + 90,
+        width: 110,
+        align: "right",
+        rowspan: true,
+        lines: ["Taxable", "Value"],
+      },
+      { name: "Rate", x: margin + 200, width: 60, align: "center" },
+      { name: "Amount", x: margin + 260, width: 110, align: "right" },
       {
         name: "Total Tax Amount",
-        x: margin + 420,
-        width: boxWidth - 420,
+        x: margin + 370,
+        width: boxWidth - 370,
         align: "right",
+        rowspan: true,
+        lines: ["Total", "Tax Amount"],
       },
     ];
+    hsnGroups = [{ label: "IGST", startX: margin + 200, endX: margin + 370 }];
   } else {
     hsnCols = [
-      { name: "HSN/SAC", x: margin, width: 70, align: "center" },
-      { name: "Taxable Value", x: margin + 70, width: 85, align: "right" },
-      { name: "CGST Rate", x: margin + 155, width: 55, align: "center" },
-      { name: "CGST Amount", x: margin + 210, width: 80, align: "right" },
-      { name: "SGST Rate", x: margin + 290, width: 55, align: "center" },
-      { name: "SGST Amount", x: margin + 345, width: 80, align: "right" },
+      { name: "HSN/SAC", x: margin, width: 65, align: "center", rowspan: true },
+      {
+        name: "Taxable Value",
+        x: margin + 65,
+        width: 85,
+        align: "right",
+        rowspan: true,
+        lines: ["Taxable", "Value"],
+      },
+      { name: "Rate", x: margin + 150, width: 50, align: "center" },
+      { name: "Amount", x: margin + 200, width: 80, align: "right" },
+      { name: "Rate", x: margin + 280, width: 50, align: "center" },
+      { name: "Amount", x: margin + 330, width: 85, align: "right" },
       {
         name: "Total Tax Amount",
-        x: margin + 425,
-        width: boxWidth - 425,
+        x: margin + 415,
+        width: boxWidth - 415,
         align: "right",
+        rowspan: true,
+        lines: ["Total", "Tax Amount"],
       },
+    ];
+    hsnGroups = [
+      { label: "CGST", startX: margin + 150, endX: margin + 280 },
+      { label: "SGST/UTGST", startX: margin + 280, endX: margin + 415 },
     ];
   }
 
   doc.setFont("helvetica", "bold");
-  hsnCols.forEach((col, idx) => {
-    let textX = col.x + col.width / 2;
-    if (col.align === "right") textX = col.x + col.width - 4;
-    doc.text(col.name, textX, hsnTableTopY + 10, { align: col.align });
-    if (idx > 0) doc.line(col.x, hsnTableTopY, col.x, hsnTableTopY + 30);
+  doc.setFontSize(7.5);
+
+  // Group header row (CGST / SGST-UTGST / IGST)
+  hsnGroups.forEach((g) => {
+    doc.text(g.label, (g.startX + g.endX) / 2, hsnTableTopY + 10, {
+      align: "center",
+    });
   });
 
-  y += 14;
+  // Rowspan columns (vertically centered across the full header height)
+  hsnCols
+    .filter((c) => c.rowspan)
+    .forEach((c) => {
+      const cx = c.align === "right" ? c.x + c.width - 4 : c.x + c.width / 2;
+      if (c.lines) {
+        doc.text(c.lines[0], cx, hsnTableTopY + 11, { align: c.align });
+        doc.text(c.lines[1], cx, hsnTableTopY + 20, { align: c.align });
+      } else {
+        doc.text(c.name, cx, hsnTableTopY + 17, { align: c.align });
+      }
+    });
+
+  // Sub-header row (Rate / Amount) under each group
+  hsnCols
+    .filter((c) => !c.rowspan)
+    .forEach((c) => {
+      const cx = c.align === "right" ? c.x + c.width - 4 : c.x + c.width / 2;
+      doc.text(c.name, cx, hsnTableTopY + HEADER_ROW_H + 10, {
+        align: c.align,
+      });
+    });
+
+  // Vertical lines between every leaf column, full header height
+  hsnCols.forEach((c, idx) => {
+    if (idx > 0) doc.line(c.x, hsnTableTopY, c.x, hsnTableTopY + HSN_HEADER_H);
+  });
+
+  // Horizontal divider between group row and Rate/Amount sub-row, only
+  // spanning the grouped column range (not the rowspan columns)
+  hsnGroups.forEach((g) => {
+    doc.line(
+      g.startX,
+      hsnTableTopY + HEADER_ROW_H,
+      g.endX,
+      hsnTableTopY + HEADER_ROW_H,
+    );
+  });
+
+  y = hsnTableTopY + HSN_HEADER_H;
   doc.line(margin, y, pageWidth - margin, y);
 
   let hsnTaxSum = 0;
@@ -3089,8 +3167,7 @@ async function generateInvoicePdf(currentUser, bill, items) {
     y += 14;
   });
 
-  // Side borders for the HSN summary table body. Previously only the header
-  // row had vertical dividers — the data rows below it weren't enclosed.
+  // Side borders for the HSN summary table body.
   hsnCols.forEach((col, idx) => {
     if (idx > 0) doc.line(col.x, hsnRowsTopY, col.x, y);
   });
@@ -3150,17 +3227,24 @@ async function generateInvoicePdf(currentUser, bill, items) {
   y += 16;
   doc.line(margin, y, pageWidth - margin, y);
 
-  // Footer safety check now shares FOOTER_RESERVE with the mid-table break
-  // logic above, instead of an unrelated, too-shallow 80pt guess that could
-  // clip the bank-details/signatory block off the bottom of the page.
+  // Footer safety check shares FOOTER_RESERVE with the mid-table break logic
+  // above, so the bank-details/signatory block never gets clipped off the
+  // bottom of the page.
   if (y > pageHeight - margin - FOOTER_RESERVE) {
     doc.addPage();
     addHeaderAndOuterBox();
   }
 
-  // Legal Declarations & Bank Details Footer
+  // -----------------------------------------------------------------------
+  // Footer: Left = PAN + Declaration only. Right = Bank Details + Signatory
+  // (matches Tally — Bank Details sits with the signatory block, not with
+  // the Declaration).
+  // -----------------------------------------------------------------------
   const footerTopY = y;
+  const sigX = pageWidth - margin - 200;
+
   doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.5);
   const gstinVal = bill.wh_gstin || currentUser.gstin || "";
   const panVal = gstinVal.length >= 10 ? gstinVal.substring(2, 12) : "—";
   doc.text(`Company's PAN: ${panVal}`, margin + 6, footerTopY + 10);
@@ -3179,38 +3263,38 @@ async function generateInvoicePdf(currentUser, bill, items) {
     footerTopY + 40,
   );
 
+  // Vertical divider between Declaration (left) and Bank Details/Signatory (right)
+  doc.line(sigX, footerTopY, sigX, BOX_BOTTOM);
+
   doc.setFont("helvetica", "bold");
-  doc.text("Company's Bank Details", margin + 6, footerTopY + 54);
+  doc.text("Company's Bank Details", sigX + 10, footerTopY + 10);
   doc.setFont("helvetica", "normal");
 
-  const bankNameStr = bill.wh_bank_name || "—";
-  const accNumStr = bill.wh_account_number
-    ? ` (A/C: ${bill.wh_account_number})`
-    : "";
   doc.text(
-    `Bank Name: ${bankNameStr}${accNumStr}`,
-    margin + 6,
-    footerTopY + 64,
+    `Bank Name: ${bill.wh_bank_name || "—"}`,
+    sigX + 10,
+    footerTopY + 20,
+  );
+  doc.text(
+    `A/c No.: ${bill.wh_account_number || "—"}`,
+    sigX + 10,
+    footerTopY + 30,
   );
   doc.text(
     `Branch & IFS Code: ${bill.wh_branch_ifsc || "—"}`,
-    margin + 6,
-    footerTopY + 74,
+    sigX + 10,
+    footerTopY + 40,
   );
 
-  // Authorised Signatory Block — line runs to the fixed outer-box bottom
-  // (this is a fixed A4 template, so that bound is intentional, not a bug)
-  const sigX = pageWidth - margin - 200;
-  doc.line(sigX, footerTopY, sigX, pageHeight - margin - 15);
-
+  doc.setFont("helvetica", "bold");
   doc.text(
     `for ${bill.wh_company_name || currentUser.company_name || "FOSTER COLD STORAGE PVT LTD"}`,
     sigX + 10,
-    footerTopY + 14,
+    footerTopY + 54,
   );
 
   doc.setFont("helvetica", "normal");
-  doc.text("Authorised Signatory", sigX + 50, pageHeight - margin - 23);
+  doc.text("Authorised Signatory", sigX + 50, BOX_BOTTOM - 8);
 
   // Centered External Invoice Declaration Footer
   doc.setFont("helvetica", "italic");
