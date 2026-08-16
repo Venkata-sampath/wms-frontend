@@ -2486,28 +2486,43 @@ async function generateInvoicePdf(currentUser, bill, items) {
   const margin = 28;
   const boxWidth = pageWidth - margin * 2;
   const ROW_PAD = 8; // shared bottom padding so sibling blocks align on one line
-  const FOOTER_RESERVE = 110; // space kept clear for declaration/bank/signatory footer
-  const BOX_BOTTOM = pageHeight - margin - 15; // fixed outer-box bottom, same on every page
+  const FOOTER_RESERVE = 110; // space reserved when deciding whether the footer fits on the current page
+  const BOX_BOTTOM_MAX = pageHeight - margin - 15; // outer-box bottom on a page that's fully used (overflow pages)
 
   let y = margin;
+  let boxTop = margin + 18; // current page's box top, tracked across page breaks
 
-  // Title now sits ABOVE the outer box (matches Tally: "TAX INVOICE" printed
-  // above the rule, not inside it with its own divider line).
-  function addHeaderAndOuterBox() {
+  // Draws the page title above the box and resets y to the box's top edge.
+  // The outer box itself is NOT drawn here anymore — it's drawn once we
+  // know how tall this page's content actually is, so a short invoice gets
+  // a tightly-wrapped box instead of one stretched to the full page.
+  function startPage() {
     doc.setLineWidth(0.75);
     doc.setDrawColor(0);
-
     doc.setFontSize(10);
     doc.setFont("helvetica", "bold");
     doc.text("TAX INVOICE", pageWidth / 2, margin + 10, { align: "center" });
-
-    const boxTop = margin + 18;
-    doc.rect(margin, boxTop, boxWidth, BOX_BOTTOM - boxTop);
-
+    boxTop = margin + 18;
     y = boxTop;
   }
 
-  addHeaderAndOuterBox();
+  // Closes the outer box at a specific bottom position.
+  function closeBox(bottomY) {
+    doc.setLineWidth(0.75);
+    doc.setDrawColor(0);
+    doc.rect(margin, boxTop, boxWidth, bottomY - boxTop);
+  }
+
+  // Used when content overflows onto a new page: the page we're leaving
+  // gets a full-height box (content continues, so it should look complete),
+  // then a new page starts.
+  function goToNextPage() {
+    closeBox(BOX_BOTTOM_MAX);
+    doc.addPage();
+    startPage();
+  }
+
+  startPage();
 
   const isInterState = bill.tax_type === "inter";
 
@@ -2516,10 +2531,7 @@ async function generateInvoicePdf(currentUser, bill, items) {
   const headerTopY = y;
 
   // ---------------------------------------------------------------------
-  // LEFT COLUMN: Seller (Biller) info flowing straight into Buyer info,
-  // as ONE continuous block with no horizontal divider between them
-  // (matches Tally: Seller and "Buyer (Bill to)" share the same column,
-  // separated only by normal line spacing).
+  // LEFT COLUMN: Seller (Biller) info, a divider line, then Buyer info.
   // ---------------------------------------------------------------------
   doc.setFontSize(9);
   doc.setFont("helvetica", "bold");
@@ -2545,13 +2557,13 @@ async function generateInvoicePdf(currentUser, bill, items) {
     leftY += 10;
   }
   doc.text(
-    `GSTIN/UIN: ${bill.wh_gstin || currentUser.gstin || "—"}`,
+    `GSTIN/UIN: ${bill.wh_gstin || currentUser.gstin || ""}`,
     margin + 6,
     leftY,
   );
   leftY += 10;
   doc.text(
-    `State Name: ${bill.wh_state_name || "—"}, Code: ${bill.wh_state_code || "—"}`,
+    `State Name: ${bill.wh_state_name || ""}, Code: ${bill.wh_state_code || ""}`,
     margin + 6,
     leftY,
   );
@@ -2565,8 +2577,11 @@ async function generateInvoicePdf(currentUser, bill, items) {
     leftY += 10;
   }
 
-  // Buyer block continues directly below Seller block, same column.
-  leftY += 3;
+  // Divider between Biller and Buyer sections (left column only)
+  leftY += 4;
+  doc.line(margin, leftY, midX, leftY);
+  leftY += 8;
+
   doc.setFont("helvetica", "normal");
   doc.text("Buyer (Bill to)", margin + 6, leftY);
   leftY += 10;
@@ -2582,19 +2597,19 @@ async function generateInvoicePdf(currentUser, bill, items) {
     leftY += clientAddrLines.length * 9;
   }
   doc.text(
-    `GSTIN/UIN: ${bill.buyer_gstin || bill.client_gstin || "—"}`,
+    `GSTIN/UIN: ${bill.buyer_gstin || bill.client_gstin || ""}`,
     margin + 6,
     leftY,
   );
   leftY += 10;
   doc.text(
-    `State Name: ${bill.buyer_state_name || "—"}, Code: ${bill.buyer_state_code || "—"}`,
+    `State Name: ${bill.buyer_state_name || ""}, Code: ${bill.buyer_state_code || ""}`,
     margin + 6,
     leftY,
   );
   leftY += 10;
   doc.text(
-    `Place of Supply: ${bill.place_of_supply || bill.buyer_state_name || "—"}`,
+    `Place of Supply: ${bill.place_of_supply || bill.buyer_state_name || ""}`,
     margin + 6,
     leftY,
   );
@@ -2604,17 +2619,15 @@ async function generateInvoicePdf(currentUser, bill, items) {
 
   // ---------------------------------------------------------------------
   // RIGHT COLUMN: one continuous 7-row invoice-metadata column, independent
-  // of where the left column's Seller/Buyer split falls (matches Tally).
-  // Rows 1-6 are two-column (label/value pairs); row 7 (Terms of Delivery)
-  // spans the full right-column width.
+  // of the left column's Biller/Buyer split.
   // ---------------------------------------------------------------------
   let rightY = headerTopY;
   const col1X = midX + 4;
   const col2X = midX + boxWidth / 4;
   const metaRowH = 20;
 
-  const refStr = `${bill.reference_number || "—"}${bill.reference_date ? " dt. " + bill.reference_date : ""}`;
-  const otherRefStr = bill.other_ref || bill.notes || "—";
+  const refStr = `${bill.reference_number || ""}${bill.reference_date ? " dt. " + bill.reference_date : ""}`;
+  const otherRefStr = bill.other_ref || bill.notes || "";
 
   const rightRows = [
     ["Invoice No.", bill.invoice_number, "Dated", bill.invoice_date],
@@ -2650,12 +2663,12 @@ async function generateInvoicePdf(currentUser, bill, items) {
     doc.setFontSize(7.5);
     doc.text(row[0], col1X, rightY + 9);
     doc.setFont("helvetica", "bold");
-    doc.text(`${row[1] || "—"}`, col1X, rightY + 18);
+    doc.text(`${row[1] || ""}`, col1X, rightY + 18);
 
     doc.setFont("helvetica", "normal");
     doc.text(row[2], col2X + 4, rightY + 9);
     doc.setFont("helvetica", "bold");
-    doc.text(`${row[3] || "—"}`, col2X + 4, rightY + 18);
+    doc.text(`${row[3] || ""}`, col2X + 4, rightY + 18);
 
     doc.setFont("helvetica", "normal");
     rightY += metaRowH;
@@ -2679,9 +2692,6 @@ async function generateInvoicePdf(currentUser, bill, items) {
     doc.setFont("helvetica", "normal");
     rightY = termsTopY + deliveryLines.length * 9 + 15;
   } else {
-    doc.setFont("helvetica", "bold");
-    doc.text("—", col1X, termsTopY + 20);
-    doc.setFont("helvetica", "normal");
     rightY = termsTopY + 9 + 15;
   }
 
@@ -2720,26 +2730,31 @@ async function generateInvoicePdf(currentUser, bill, items) {
 
   let tableHeaderTopY = y;
 
+  // All header labels are centered over their column, regardless of how
+  // the data cells below them are aligned.
   function drawTableHeaders() {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(7.5);
     cols.forEach((col, idx) => {
-      let textX = col.x + col.width / 2;
-      if (col.align === "left") textX = col.x + 4;
-      if (col.align === "right") textX = col.x + col.width - 4;
+      const textX = col.x + col.width / 2;
 
       if (col.name === "SI No") {
-        doc.text("SI", col.x + col.width / 2, tableHeaderTopY + 9, {
-          align: "center",
-        });
-        doc.text("No.", col.x + col.width / 2, tableHeaderTopY + 18, {
-          align: "center",
-        });
+        doc.text("SI", textX, tableHeaderTopY + 9, { align: "center" });
+        doc.text("No.", textX, tableHeaderTopY + 18, { align: "center" });
       } else if (col.name.includes("Description")) {
-        doc.text("Description of", col.x + 4, tableHeaderTopY + 9);
-        doc.text("Goods and Services", col.x + 4, tableHeaderTopY + 18);
+        doc.text("Description of", textX, tableHeaderTopY + 9, {
+          align: "center",
+        });
+        doc.text("Goods and Services", textX, tableHeaderTopY + 18, {
+          align: "center",
+        });
+      } else if (col.name === "MRP/Marginal") {
+        doc.text("MRP/", textX, tableHeaderTopY + 9, { align: "center" });
+        doc.text("Marginal", textX, tableHeaderTopY + 18, {
+          align: "center",
+        });
       } else {
-        doc.text(col.name, textX, tableHeaderTopY + 14, { align: col.align });
+        doc.text(col.name, textX, tableHeaderTopY + 14, { align: "center" });
       }
 
       if (idx > 0) {
@@ -2768,8 +2783,7 @@ async function generateInvoicePdf(currentUser, bill, items) {
       cols.forEach((col, idx) => {
         if (idx > 0) doc.line(col.x, tableContentTopY - 24, col.x, y);
       });
-      doc.addPage();
-      addHeaderAndOuterBox();
+      goToNextPage();
       tableHeaderTopY = y;
       drawTableHeaders();
       tableContentTopY = y;
@@ -2823,8 +2837,7 @@ async function generateInvoicePdf(currentUser, bill, items) {
           cols.forEach((col, idx) => {
             if (idx > 0) doc.line(col.x, tableContentTopY - 24, col.x, y);
           });
-          doc.addPage();
-          addHeaderAndOuterBox();
+          goToNextPage();
           tableHeaderTopY = y;
           drawTableHeaders();
           tableContentTopY = y;
@@ -2857,8 +2870,7 @@ async function generateInvoicePdf(currentUser, bill, items) {
     cols.forEach((col, idx) => {
       if (idx > 0) doc.line(col.x, tableContentTopY - 24, col.x, y);
     });
-    doc.addPage();
-    addHeaderAndOuterBox();
+    goToNextPage();
     tableHeaderTopY = y;
     drawTableHeaders();
     tableContentTopY = y;
@@ -3227,26 +3239,26 @@ async function generateInvoicePdf(currentUser, bill, items) {
   y += 16;
   doc.line(margin, y, pageWidth - margin, y);
 
-  // Footer safety check shares FOOTER_RESERVE with the mid-table break logic
-  // above, so the bank-details/signatory block never gets clipped off the
-  // bottom of the page.
+  // If the footer clearly won't fit in the space reserved for it, start a
+  // fresh page for it rather than letting it run off the bottom.
   if (y > pageHeight - margin - FOOTER_RESERVE) {
-    doc.addPage();
-    addHeaderAndOuterBox();
+    goToNextPage();
   }
 
   // -----------------------------------------------------------------------
-  // Footer: Left = PAN + Declaration only. Right = Bank Details + Signatory
-  // (matches Tally — Bank Details sits with the signatory block, not with
-  // the Declaration).
+  // Footer: Left = PAN + Declaration. Right = Bank Details + Signatory.
+  // The signature area gets a fixed-size gap (not stretched to the page
+  // bottom) — "for {company}" is pulled from the biller name above, and the
+  // box around this whole footer is drawn tightly once we know its height.
   // -----------------------------------------------------------------------
   const footerTopY = y;
   const sigX = pageWidth - margin - 200;
+  const SIGNATURE_GAP = 40; // fixed blank space left for the physical signature
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7.5);
   const gstinVal = bill.wh_gstin || currentUser.gstin || "";
-  const panVal = gstinVal.length >= 10 ? gstinVal.substring(2, 12) : "—";
+  const panVal = gstinVal.length >= 10 ? gstinVal.substring(2, 12) : "";
   doc.text(`Company's PAN: ${panVal}`, margin + 6, footerTopY + 10);
 
   doc.setFont("helvetica", "bold");
@@ -3262,47 +3274,49 @@ async function generateInvoicePdf(currentUser, bill, items) {
     margin + 6,
     footerTopY + 40,
   );
-
-  // Vertical divider between Declaration (left) and Bank Details/Signatory (right)
-  doc.line(sigX, footerTopY, sigX, BOX_BOTTOM);
+  const leftFooterBottomY = footerTopY + 50;
 
   doc.setFont("helvetica", "bold");
   doc.text("Company's Bank Details", sigX + 10, footerTopY + 10);
   doc.setFont("helvetica", "normal");
-
+  doc.text(`Bank Name: ${bill.wh_bank_name || ""}`, sigX + 10, footerTopY + 20);
   doc.text(
-    `Bank Name: ${bill.wh_bank_name || "—"}`,
-    sigX + 10,
-    footerTopY + 20,
-  );
-  doc.text(
-    `A/c No.: ${bill.wh_account_number || "—"}`,
+    `A/c No.: ${bill.wh_account_number || ""}`,
     sigX + 10,
     footerTopY + 30,
   );
   doc.text(
-    `Branch & IFS Code: ${bill.wh_branch_ifsc || "—"}`,
+    `Branch & IFS Code: ${bill.wh_branch_ifsc || ""}`,
     sigX + 10,
     footerTopY + 40,
   );
 
+  const forCompanyY = footerTopY + 54;
   doc.setFont("helvetica", "bold");
-  doc.text(
-    `for ${bill.wh_company_name || currentUser.company_name || "FOSTER COLD STORAGE PVT LTD"}`,
-    sigX + 10,
-    footerTopY + 54,
-  );
+  doc.text(`for ${compName}`, sigX + 10, forCompanyY);
 
+  const authSigY = forCompanyY + SIGNATURE_GAP;
   doc.setFont("helvetica", "normal");
-  doc.text("Authorised Signatory", sigX + 50, BOX_BOTTOM - 8);
+  doc.text("Authorised Signatory", sigX + 50, authSigY);
+  const rightFooterBottomY = authSigY + 10;
 
-  // Centered External Invoice Declaration Footer
+  // Box hugs the footer content — this is what creates the "fixed box
+  // around the signature" look instead of a divider stretching to the
+  // bottom of the page.
+  const footerBottomY = Math.max(leftFooterBottomY, rightFooterBottomY);
+
+  // Vertical divider between Declaration (left) and Bank Details/Signatory (right)
+  doc.line(sigX, footerTopY, sigX, footerBottomY);
+
+  closeBox(footerBottomY);
+
+  // Centered External Invoice Declaration Footer, just below the box
   doc.setFont("helvetica", "italic");
   doc.setFontSize(8);
   doc.text(
     "This is a Computer Generated Invoice",
     pageWidth / 2,
-    pageHeight - margin + 2,
+    footerBottomY + 14,
     { align: "center" },
   );
 
