@@ -243,18 +243,18 @@ export const Api = {
   },
 
   // Inside api.js
-  shipments: {
+  inbound: {
     async listPending() {
-      return sendRequest("GET", "/api/shipments/pending");
+      return sendRequest("GET", "/api/inbound/pending");
     },
     async getStaged(shipmentId) {
-      return sendRequest("GET", `/api/shipments/staged?id=${shipmentId}`);
+      return sendRequest("GET", `/api/inbound/staged?id=${shipmentId}`);
     },
     async upload(formData) {
       return sendRequest("POST", "/api/inbound/upload", formData);
     },
     async commit(payload) {
-      return sendRequest("POST", "/api/shipments/commit", payload);
+      return sendRequest("POST", "/api/inbound/commit", payload);
     },
   },
 
