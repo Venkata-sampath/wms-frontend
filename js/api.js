@@ -256,6 +256,12 @@ export const Api = {
     async commit(payload) {
       return sendRequest("POST", "/api/inbound/commit", payload);
     },
+    async remove(shipmentId) {
+      return sendRequest(
+        "DELETE",
+        `/api/inbound/${encodeURIComponent(shipmentId)}`,
+      );
+    },
   },
 
   // --- PARTY MASTER LOOKUP (used during verification to detect existing GSTINs) ---
@@ -300,6 +306,12 @@ export const Api = {
     },
     async commit(payload) {
       return sendRequest("POST", "/api/outbound/commit", payload);
+    },
+    async remove(shipmentId) {
+      return sendRequest(
+        "DELETE",
+        `/api/outbound/${encodeURIComponent(shipmentId)}`,
+      );
     },
   },
 
