@@ -74,57 +74,68 @@ export async function render(container, user) {
         </div>
       </div>
 
-      <div class="card border-0 shadow-sm rounded-0 rounded-sm-3 p-4 mb-4">
-        <h6 class="fw-bold mb-1 text-dark">Upload Inbound Shipment Packet</h6>
-        <p class="text-muted small mb-3">Accepts Tax Invoices, Delivery Challans, E-Way Bills, and Lorry Receipts.</p>
+      <ul class="nav nav-tabs px-3 px-sm-0 mb-3" id="inbound-tabs">
+        <li class="nav-item"><button class="nav-link active" data-tab="pending" type="button">Pending Approval</button></li>
+        <li class="nav-item"><button class="nav-link" data-tab="manual" type="button">Manual Entry</button></li>
+      </ul>
 
-        <div id="dropzone" class="border rounded-3 p-4 text-center mb-3 bg-light" style="border: 2px dashed #dee2e6 !important; cursor: pointer;">
-          <p class="mb-2 text-muted"><i class="bi bi-cloud-arrow-up text-primary fs-2 d-block mb-1"></i>Drag & Drop files or</p>
-          <div class="d-flex flex-wrap justify-content-center gap-2">
-            <button id="browse-btn" type="button" class="btn btn-primary btn-sm"><i class="bi bi-folder2-open"></i> Browse Files</button>
-            <button id="camera-btn" type="button" class="btn btn-secondary btn-sm"><i class="bi bi-camera"></i> Camera</button>
+      <div id="tab-pending" class="px-3 px-sm-0">
+        <div class="card border-0 shadow-sm rounded-0 rounded-sm-3 p-4 mb-4">
+          <h6 class="fw-bold mb-1 text-dark">Upload Inbound Shipment Packet</h6>
+          <p class="text-muted small mb-3">Accepts Tax Invoices, Delivery Challans, E-Way Bills, and Lorry Receipts.</p>
+
+          <div id="dropzone" class="border rounded-3 p-4 text-center mb-3 bg-light" style="border: 2px dashed #dee2e6 !important; cursor: pointer;">
+            <p class="mb-2 text-muted"><i class="bi bi-cloud-arrow-up text-primary fs-2 d-block mb-1"></i>Drag & Drop files or</p>
+            <div class="d-flex flex-wrap justify-content-center gap-2">
+              <button id="browse-btn" type="button" class="btn btn-primary btn-sm"><i class="bi bi-folder2-open"></i> Browse Files</button>
+              <button id="camera-btn" type="button" class="btn btn-secondary btn-sm"><i class="bi bi-camera"></i> Camera</button>
+            </div>
+            <input type="file" id="file-input" multiple accept="image/*" class="d-none">
+            <input type="file" id="camera-input" accept="image/*" capture="environment" class="d-none">
           </div>
-          <input type="file" id="file-input" multiple accept="image/*" class="d-none">
-          <input type="file" id="camera-input" accept="image/*" capture="environment" class="d-none">
+
+          <div id="upload-rows" class="mb-3 d-flex flex-column gap-2"></div>
+          <button id="upload-all-btn" class="btn btn-success w-100 py-2 shadow-sm" disabled>
+            <i class="bi bi-send-check shadow-sm"></i> Process All Documents
+          </button>
+          <div id="upload-status" class="small mt-2"></div>
         </div>
 
-        <div id="upload-rows" class="mb-3 d-flex flex-column gap-2"></div>
-        <button id="upload-all-btn" class="btn btn-success w-100 py-2 shadow-sm" disabled>
-          <i class="bi bi-send-check shadow-sm"></i> Process All Documents
-        </button>
-        <div id="upload-status" class="small mt-2"></div>
+        <div class="mb-4">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h5 class="fw-bold text-secondary mb-0">Pending Approval</h5>
+          </div>
+          <p class="text-muted small">Shipments still processing or awaiting your verification. Come back anytime — nothing here is lost.</p>
+          <div class="card border-0 shadow-sm rounded-3 overflow-hidden">
+            <div style="max-height: 340px; overflow-y: auto;">
+              <table class="table table-hover mb-0 align-middle">
+                <thead class="table-light" style="position: sticky; top: 0; z-index: 1;">
+                  <tr>
+                    <th class="ps-3">Shipment</th>
+                    <th>Uploaded By</th>
+                    <th>Created At</th>
+                    <th>Status</th>
+                    <th class="pe-3 text-end">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="list-body-inbound">
+                  <tr><td colspan="5" class="text-center text-muted py-4">Loading queue...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div class="mb-4 px-3 px-sm-0">
-        <div class="d-flex justify-content-between align-items-center mb-2">
-          <h5 class="fw-bold text-secondary mb-0">Pending Approval</h5>
-        </div>
-        <p class="text-muted small">Shipments still processing or awaiting your verification. Come back anytime — nothing here is lost.</p>
-        <div class="card border-0 shadow-sm rounded-3 overflow-hidden">
-          <div style="max-height: 340px; overflow-y: auto;">
-            <table class="table table-hover mb-0 align-middle">
-              <thead class="table-light" style="position: sticky; top: 0; z-index: 1;">
-                <tr>
-                  <th class="ps-3">Shipment</th>
-                  <th>Uploaded By</th>
-                  <th>Created At</th>
-                  <th>Status</th>
-                  <th class="pe-3 text-end">Actions</th>
-                </tr>
-              </thead>
-              <tbody id="list-body-inbound">
-                <tr><td colspan="5" class="text-center text-muted py-4">Loading queue...</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+      <div id="tab-manual" class="px-3 px-sm-0 d-none">
+        <button id="start-manual-btn" class="btn btn-outline-primary mb-3"><i class="bi bi-file-earmark-plus"></i> Start Blank Inbound Order</button>
       </div>
 
-      <div id="workspace" class="mt-4">
+      <div id="workspace" class="mt-4 px-3 px-sm-0">
         <div class="card border-0 p-5 shadow-sm text-center text-muted rounded-0 rounded-sm-3">
           <i class="bi bi-clipboard-check text-muted display-6 d-block mb-3"></i>
           <h6 class="fw-bold text-secondary mb-1">No Active Workspace</h6>
-          Select a shipment row from the Pending Approval queue to verify data records.
+          Select a shipment row from the Pending Approval queue, or start a Manual Entry order.
         </div>
       </div>
     </div>
@@ -152,6 +163,23 @@ export async function render(container, user) {
 // UPLOAD PANEL WIRING & LOGIC
 // =========================================================================
 function setupEventListeners(container) {
+  // Tab switching logic
+  container.querySelectorAll("#inbound-tabs .nav-link").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      container
+        .querySelectorAll("#inbound-tabs .nav-link")
+        .forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      const tab = btn.getAttribute("data-tab");
+      container
+        .querySelector("#tab-pending")
+        .classList.toggle("d-none", tab !== "pending");
+      container
+        .querySelector("#tab-manual")
+        .classList.toggle("d-none", tab !== "manual");
+    });
+  });
+
   const fileInput = container.querySelector("#file-input");
   const cameraInput = container.querySelector("#camera-input");
   const dropzone = container.querySelector("#dropzone");
@@ -177,6 +205,13 @@ function setupEventListeners(container) {
 
   container.querySelector("#upload-all-btn").onclick = uploadAll;
   container.querySelector("#refresh-queue-btn").onclick = refreshQueue;
+
+  // Manual Entry Trigger
+  container.querySelector("#start-manual-btn").addEventListener("click", () => {
+    activeShipmentId = null; // Clear out any AI context
+    const root = document.getElementById("inbound-root");
+    renderWorkspace(root, { header: {}, parties: {}, lineItems: [] });
+  });
 }
 
 function handleFiles(files) {
@@ -254,7 +289,7 @@ async function uploadAll() {
       fd.append("document_types", row.querySelector(".doc-type").value);
     });
 
-    const result = await Api.shipments.upload(fd);
+    const result = await Api.inbound.upload(fd);
     if (!result || result.success === false) {
       throw new Error(result?.error || "Upload was rejected by the server.");
     }
@@ -286,7 +321,7 @@ async function refreshQueue() {
   if (!listBody) return;
 
   try {
-    const shipments = await Api.shipments.listPending();
+    const shipments = await Api.inbound.listPending();
 
     if (!shipments || shipments.length === 0) {
       listBody.innerHTML = `
@@ -299,7 +334,7 @@ async function refreshQueue() {
     listBody.innerHTML = shipments.map((s) => renderQueueRow(s)).join("");
 
     listBody.querySelectorAll(".verify-btn").forEach((btn) => {
-      btn.onclick = () => renderVerification(btn.dataset.id);
+      btn.onclick = () => openStagedShipment(btn.dataset.id);
     });
   } catch (err) {
     listBody.innerHTML = `
@@ -382,7 +417,8 @@ function formatTimestamp(raw) {
 // =========================================================================
 // VERIFICATION WORKSPACE ENGINE
 // =========================================================================
-async function renderVerification(shipmentId) {
+
+async function openStagedShipment(shipmentId) {
   const workspace = document.getElementById("workspace");
   activeShipmentId = shipmentId;
   refreshQueue();
@@ -396,7 +432,7 @@ async function renderVerification(shipmentId) {
 
   let data;
   try {
-    data = await Api.shipments.getStaged(shipmentId);
+    data = await Api.inbound.getStaged(shipmentId);
   } catch (err) {
     workspace.innerHTML = `<div class="alert alert-danger border-0 p-3 shadow-sm rounded-0 rounded-sm-3 mx-3 mx-sm-0"><i class="bi bi-x-octagon-fill me-2"></i>Failed to load shipment staged variables: ${err.message}</div>`;
     return;
@@ -412,13 +448,19 @@ async function renderVerification(shipmentId) {
   }
 
   const staging = JSON.parse(data.staging_json);
+  const root = document.getElementById("inbound-root");
+  renderWorkspace(root, staging);
+}
+
+async function renderWorkspace(root, staging) {
+  const workspace = root.querySelector("#workspace");
 
   workspace.innerHTML = `
     <div class="card border-0 p-4 shadow-sm rounded-0 rounded-sm-3 mt-2 animate-fade-in">
       <form id="verification-form" novalidate>
         <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center border-bottom pb-3 mb-4">
           <h5 class="fw-bold text-dark mb-1 mb-sm-0 fs-5">
-            Verify Shipment Structure: <code class="text-primary bg-light px-2 py-1 rounded small d-inline-block text-truncate" style="max-width:200px;">${shipmentId}</code>
+            ${activeShipmentId ? `Verify Shipment Structure: <code class="text-primary bg-light px-2 py-1 rounded small d-inline-block text-truncate" style="max-width:200px;">${activeShipmentId}</code>` : "Manual Inbound Order Entry"}
           </h5>
           <span class="small text-muted"><i class="bi bi-shield-fill-check text-success"></i> Form Validation System Active</span>
         </div>
@@ -614,11 +656,11 @@ async function renderVerification(shipmentId) {
     .getElementById("verification-form")
     .addEventListener("submit", (e) => {
       e.preventDefault();
-      commitShipment(shipmentId, workspace);
+      commitShipment(activeShipmentId, workspace);
     });
 
   document.getElementById("commit-btn").onclick = () =>
-    commitShipment(shipmentId, workspace);
+    commitShipment(activeShipmentId, workspace);
 }
 
 const REQUIRED_HEADER_KEYS = ["invoice_number", "invoice_date"];
@@ -1077,7 +1119,7 @@ async function commitShipment(shipmentId, workspace) {
       lineItems,
     };
 
-    const result = await Api.shipments.commit(payload);
+    const result = await Api.inbound.commit(payload);
     if (!result || result.success === false) {
       throw new Error(result?.error || "Commit was rejected by the server.");
     }
