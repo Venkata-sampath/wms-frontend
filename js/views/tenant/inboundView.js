@@ -7,6 +7,7 @@ let pollInterval = null;
 let currentFiles = [];
 let activeShipmentId = null;
 let objectUrlsMap = {};
+let pendingDeleteShipmentId = null;
 
 const HEADER_KEYS = [
   "invoice_number",
@@ -31,6 +32,7 @@ export function dispose() {
   currentFiles = [];
   activeShipmentId = null;
   objectUrlsMap = {};
+  pendingDeleteShipmentId = null;
 }
 
 // =========================================================================
@@ -140,6 +142,7 @@ export async function render(container, user) {
       </div>
     </div>
 
+    <!-- PREVIEW MODAL -->
     <div class="modal fade" id="previewModal" tabindex="-1">
       <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content border-0 shadow-lg rounded-3">
@@ -149,6 +152,30 @@ export async function render(container, user) {
           </div>
           <div class="modal-body p-0 text-center bg-dark rounded-bottom">
             <img src="" id="modal-img" class="img-fluid" style="max-height: 80vh; object-fit: contain;">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DELETE CONFIRMATION MODAL -->
+    <div class="modal fade" id="deleteShipmentModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-3">
+          <div class="modal-header border-bottom py-2 bg-light">
+            <h6 class="modal-title fw-bold text-danger">
+              <i class="bi bi-exclamation-triangle-fill me-1"></i> Delete Shipment Upload
+            </h6>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body text-dark py-4">
+            <p class="mb-1">Are you sure you want to permanently delete this shipment packet?</p>
+            <p class="text-muted small mb-0">All uploaded document images, raw OCR markdowns, and parsed extractions will be deleted immediately.</p>
+          </div>
+          <div class="modal-footer border-top py-2 bg-light">
+            <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-sm btn-danger px-3 shadow-sm" id="confirm-delete-shipment-btn">
+              <i class="bi bi-trash me-1"></i> Delete
+            </button>
           </div>
         </div>
       </div>
@@ -205,6 +232,14 @@ function setupEventListeners(container) {
 
   container.querySelector("#upload-all-btn").onclick = uploadAll;
   container.querySelector("#refresh-queue-btn").onclick = refreshQueue;
+
+  // Delete modal confirmation handler
+  const confirmDeleteBtn = container.querySelector(
+    "#confirm-delete-shipment-btn",
+  );
+  if (confirmDeleteBtn) {
+    confirmDeleteBtn.onclick = handleConfirmDelete;
+  }
 
   // Manual Entry Trigger
   container.querySelector("#start-manual-btn").addEventListener("click", () => {
@@ -333,8 +368,18 @@ async function refreshQueue() {
 
     listBody.innerHTML = shipments.map((s) => renderQueueRow(s)).join("");
 
+    // Initialize Bootstrap tooltips on newly rendered rows/badges
+    const tooltipTriggerList = listBody.querySelectorAll(
+      '[data-bs-toggle="tooltip"]',
+    );
+    tooltipTriggerList.forEach((el) => new bootstrap.Tooltip(el));
+
     listBody.querySelectorAll(".verify-btn").forEach((btn) => {
       btn.onclick = () => openStagedShipment(btn.dataset.id);
+    });
+
+    listBody.querySelectorAll(".delete-shipment-btn").forEach((btn) => {
+      btn.onclick = () => openDeleteModal(btn.dataset.id);
     });
   } catch (err) {
     listBody.innerHTML = `
@@ -358,21 +403,36 @@ function renderQueueRow(s) {
         <td class="text-muted small">${createdAt}</td>
         <td><span class="badge bg-success-subtle text-success px-2 py-1 border border-success-subtle rounded-pill">Ready to Verify</span></td>
         <td class="pe-3 text-end">
-          <button class="btn btn-sm btn-primary verify-btn shadow-sm" data-id="${s.id}">
-            <i class="bi bi-clipboard-check"></i> Verify
-          </button>
+          <div class="d-inline-flex gap-1">
+            <button class="btn btn-sm btn-primary verify-btn shadow-sm" data-id="${s.id}">
+              <i class="bi bi-clipboard-check"></i> Verify
+            </button>
+            <button class="btn btn-sm btn-outline-danger delete-shipment-btn" data-id="${s.id}" title="Delete Shipment">
+              <i class="bi bi-trash"></i>
+            </button>
+          </div>
         </td>
       </tr>`;
   }
 
   if (s.status === "failed") {
     return `
-      <tr>
+      <tr class="table-danger-subtle">
         <td class="ps-3"><code class="small text-danger">${shortId}</code></td>
         <td>${uploadedBy}</td>
         <td class="text-muted small">${createdAt}</td>
-        <td><span class="badge bg-danger-subtle text-danger px-2 py-1 border border-danger-subtle rounded-pill">Extraction Failed</span></td>
-        <td class="pe-3 text-end text-muted small">OCR Parsing Timeout</td>
+        <td>
+          <span class="badge bg-danger text-white px-2 py-1 rounded-pill"
+                data-bs-toggle="tooltip" data-bs-placement="top"
+                title="This shipment failed to process. Delete it and re-upload, or use manual entry instead.">
+            <i class="bi bi-exclamation-octagon-fill me-1"></i>Failed
+          </span>
+        </td>
+        <td class="pe-3 text-end">
+          <button class="btn btn-sm btn-outline-danger delete-shipment-btn" data-id="${s.id}" title="Delete Shipment">
+            <i class="bi bi-trash"></i> Delete
+          </button>
+        </td>
       </tr>`;
   }
 
@@ -387,8 +447,62 @@ function renderQueueRow(s) {
           Processing
         </span>
       </td>
-      <td class="pe-3 text-end text-muted small">OCR Analysis...</td>
+      <td class="pe-3 text-end">
+        <button class="btn btn-sm btn-outline-danger delete-shipment-btn" data-id="${s.id}" title="Delete Shipment">
+          <i class="bi bi-trash"></i>
+        </button>
+      </td>
     </tr>`;
+}
+
+function openDeleteModal(shipmentId) {
+  pendingDeleteShipmentId = shipmentId;
+  const modalEl = document.getElementById("deleteShipmentModal");
+  if (modalEl) {
+    new bootstrap.Modal(modalEl).show();
+  }
+}
+
+async function handleConfirmDelete() {
+  if (!pendingDeleteShipmentId) return;
+
+  const modalEl = document.getElementById("deleteShipmentModal");
+  const modalInstance = modalEl ? bootstrap.Modal.getInstance(modalEl) : null;
+  const confirmBtn = document.getElementById("confirm-delete-shipment-btn");
+
+  if (confirmBtn) {
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Deleting...`;
+  }
+
+  try {
+    await Api.inbound.remove(pendingDeleteShipmentId);
+
+    // If the active workspace was displaying this shipment, reset it
+    if (activeShipmentId === pendingDeleteShipmentId) {
+      activeShipmentId = null;
+      const workspace = document.getElementById("workspace");
+      if (workspace) {
+        workspace.innerHTML = `
+          <div class="card border-0 p-5 shadow-sm text-center text-muted rounded-0 rounded-sm-3">
+            <i class="bi bi-clipboard-check text-muted display-6 d-block mb-3"></i>
+            <h6 class="fw-bold text-secondary mb-1">No Active Workspace</h6>
+            Select a shipment row from the Pending Approval queue, or start a Manual Entry order.
+          </div>`;
+      }
+    }
+
+    if (modalInstance) modalInstance.hide();
+    refreshQueue();
+  } catch (err) {
+    alert(`Failed to delete shipment: ${err.message}`);
+  } finally {
+    if (confirmBtn) {
+      confirmBtn.disabled = false;
+      confirmBtn.innerHTML = `<i class="bi bi-trash me-1"></i> Delete`;
+    }
+    pendingDeleteShipmentId = null;
+  }
 }
 
 function formatTimestamp(raw) {
